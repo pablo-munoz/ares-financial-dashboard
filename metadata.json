@@ -1,0 +1,8 @@
+{
+  "name": "Ares Financial Intelligence",
+  "description": "Real-time portfolio optimization and risk analysis dashboard with AI-powered image animation.",
+  "requestFramePermissions": [
+    "camera",
+    "microphone"
+  ]
+}

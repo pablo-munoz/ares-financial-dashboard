@@ -1,0 +1,17 @@
+@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Manrope:wght@400;500;600;700;800&family=Inter:wght@400;500;600;700&display=swap');
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-display: "Space Grotesk", sans-serif;
+  --font-risk: "Manrope", sans-serif;
+  
+  --color-ares-green: #36e27b;
+  --color-ares-dark-green: #2ab562;
+}
+
+@layer base {
+  body {
+    @apply bg-[#f6f8f7] text-slate-900 antialiased;
+  }
+}

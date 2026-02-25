@@ -1,0 +1,320 @@
+import React, { useState } from 'react';
+import { 
+  TrendingUp, 
+  DollarSign, 
+  Percent, 
+  Calculator,
+  Loader2,
+  CheckCircle2,
+  ChevronRight,
+  PieChart as PieChartIcon
+} from 'lucide-react';
+import { 
+  LineChart, 
+  Line, 
+  XAxis, 
+  YAxis, 
+  CartesianGrid, 
+  Tooltip, 
+  ResponsiveContainer,
+  AreaChart,
+  Area,
+  PieChart,
+  Pie,
+  Cell
+} from 'recharts';
+import { motion, AnimatePresence } from 'motion/react';
+import { Asset } from '../types';
+import { cn } from '../lib/utils';
+
+interface DashboardOverviewProps {
+  assets: Asset[];
+}
+
+export const DashboardOverview: React.FC<DashboardOverviewProps> = ({ assets }) => {
+  const [isOptimizing, setIsOptimizing] = useState(false);
+  const [optimizationResult, setOptimizationResult] = useState<any>(null);
+  const [formData, setFormData] = useState({
+    tickers: ['AAPL', 'MSFT', 'GOOGL', 'AMZN'],
+    investment: 100000,
+    risk_tolerance: 0.5,
+    time_horizon_years: 5,
+    monthly_contribution: 500
+  });
+
+  const handleOptimize = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setIsOptimizing(true);
+    try {
+      const response = await fetch('/api/portfolio/optimize', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(formData)
+      });
+      const result = await response.json();
+      if (result.success) {
+        setOptimizationResult(result.data);
+      }
+    } catch (error) {
+      console.error("Optimization failed:", error);
+    } finally {
+      setIsOptimizing(false);
+    }
+  };
+
+  const COLORS = ['#36e27b', '#818cf8', '#60a5fa', '#fbbf24', '#f87171'];
+
+  return (
+    <div className="space-y-8 animate-in fade-in duration-700">
+      <header className="flex flex-col md:flex-row md:items-end justify-between gap-4">
+        <div>
+          <h1 className="text-3xl font-extrabold text-slate-900 font-display tracking-tight mb-2">Market Intelligence</h1>
+          <p className="text-slate-500">Real-time overview of your portfolio performance and market trends.</p>
+        </div>
+        <div className="flex items-center gap-2 text-xs font-black tracking-widest uppercase text-slate-400">
+          <span className="w-2 h-2 rounded-full bg-ares-green animate-pulse"></span>
+          Live Market Feed
+        </div>
+      </header>
+
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+        {[
+          { label: 'Total Portfolio Value', value: '$1,248,500', change: '+12.5%', icon: DollarSign, color: 'bg-ares-green' },
+          { label: 'Daily P&L', value: '+$14,230', change: '+1.2%', icon: TrendingUp, color: 'bg-indigo-500' },
+          { label: 'Market Volatility', value: '14.2%', change: '-0.8%', icon: Percent, color: 'bg-amber-500' },
+          { label: 'Risk Score', value: '68/100', change: 'Stable', icon: CheckCircle2, color: 'bg-cyan-500' },
+        ].map((stat, i) => (
+          <motion.div 
+            key={stat.label}
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: i * 0.1 }}
+            className="bg-white p-6 rounded-3xl border border-slate-100 shadow-sm hover:shadow-md transition-shadow"
+          >
+            <div className="flex items-center justify-between mb-4">
+              <div className={cn("p-2 rounded-xl text-white", stat.color)}>
+                <stat.icon className="w-5 h-5" />
+              </div>
+              <span className={cn(
+                "text-xs font-bold px-2 py-1 rounded-lg",
+                stat.change.startsWith('+') ? "bg-emerald-50 text-emerald-600" : "bg-slate-50 text-slate-600"
+              )}>
+                {stat.change}
+              </span>
+            </div>
+            <p className="text-sm font-medium text-slate-500 mb-1">{stat.label}</p>
+            <p className="text-2xl font-black text-slate-900 font-display">{stat.value}</p>
+          </motion.div>
+        ))}
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+        {/* Portfolio Engine Form */}
+        <div className="bg-white rounded-3xl border border-slate-100 p-8 shadow-sm">
+          <div className="flex items-center gap-3 mb-6">
+            <div className="p-2 bg-ares-green/10 rounded-xl">
+              <Calculator className="w-5 h-5 text-ares-green" />
+            </div>
+            <h3 className="text-lg font-bold text-slate-900 font-display">Portfolio Engine</h3>
+          </div>
+
+          <form onSubmit={handleOptimize} className="space-y-5">
+            <div className="space-y-2">
+              <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Tickers (Comma separated)</label>
+              <input 
+                type="text" 
+                value={formData.tickers.join(', ')}
+                onChange={(e) => setFormData({...formData, tickers: e.target.value.split(',').map(t => t.trim().toUpperCase())})}
+                className="w-full px-4 py-3 rounded-xl border border-slate-100 bg-slate-50 focus:ring-2 focus:ring-ares-green outline-none text-sm font-bold"
+                placeholder="AAPL, MSFT, GOOGL..."
+              />
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Investment ($)</label>
+                <input 
+                  type="number" 
+                  value={formData.investment}
+                  onChange={(e) => setFormData({...formData, investment: parseInt(e.target.value)})}
+                  className="w-full px-4 py-3 rounded-xl border border-slate-100 bg-slate-50 focus:ring-2 focus:ring-ares-green outline-none text-sm font-bold"
+                />
+              </div>
+              <div className="space-y-2">
+                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Monthly ($)</label>
+                <input 
+                  type="number" 
+                  value={formData.monthly_contribution}
+                  onChange={(e) => setFormData({...formData, monthly_contribution: parseInt(e.target.value)})}
+                  className="w-full px-4 py-3 rounded-xl border border-slate-100 bg-slate-50 focus:ring-2 focus:ring-ares-green outline-none text-sm font-bold"
+                />
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <div className="flex justify-between">
+                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Risk Tolerance</label>
+                <span className="text-[10px] font-black text-ares-green uppercase">{Math.round(formData.risk_tolerance * 100)}%</span>
+              </div>
+              <input 
+                type="range" 
+                min="0" 
+                max="1" 
+                step="0.1"
+                value={formData.risk_tolerance}
+                onChange={(e) => setFormData({...formData, risk_tolerance: parseFloat(e.target.value)})}
+                className="w-full accent-ares-green h-1.5 bg-slate-100 rounded-lg appearance-none cursor-pointer"
+              />
+              <div className="flex justify-between text-[8px] font-bold text-slate-400 uppercase">
+                <span>Conservative</span>
+                <span>Aggressive</span>
+              </div>
+            </div>
+
+            <button 
+              type="submit"
+              disabled={isOptimizing}
+              className="w-full py-4 bg-slate-900 text-white rounded-2xl font-bold flex items-center justify-center gap-2 hover:bg-slate-800 transition-all disabled:opacity-50 shadow-xl shadow-slate-900/10"
+            >
+              {isOptimizing ? <Loader2 className="w-5 h-5 animate-spin" /> : <Calculator className="w-5 h-5" />}
+              Generate Portfolio
+            </button>
+          </form>
+        </div>
+
+        {/* Results or Chart */}
+        <div className="lg:col-span-2 space-y-8">
+          <AnimatePresence mode="wait">
+            {optimizationResult ? (
+              <motion.div 
+                key="results"
+                initial={{ opacity: 0, scale: 0.95 }}
+                animate={{ opacity: 1, scale: 1 }}
+                exit={{ opacity: 0, scale: 0.95 }}
+                className="grid grid-cols-1 md:grid-cols-2 gap-6"
+              >
+                <div className="bg-white rounded-3xl border border-slate-100 p-8 shadow-sm">
+                  <h3 className="text-lg font-bold text-slate-900 mb-6 font-display flex items-center gap-2">
+                    <PieChartIcon className="w-5 h-5 text-ares-green" /> Optimized Weights
+                  </h3>
+                  <div className="h-48">
+                    <ResponsiveContainer width="100%" height="100%">
+                      <PieChart>
+                        <Pie
+                          data={Object.entries(optimizationResult.optimization.weights).map(([name, value]) => ({ name, value }))}
+                          cx="50%"
+                          cy="50%"
+                          innerRadius={60}
+                          outerRadius={80}
+                          paddingAngle={5}
+                          dataKey="value"
+                        >
+                          {Object.entries(optimizationResult.optimization.weights).map((entry, index) => (
+                            <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                          ))}
+                        </Pie>
+                        <Tooltip />
+                      </PieChart>
+                    </ResponsiveContainer>
+                  </div>
+                  <div className="mt-4 grid grid-cols-2 gap-2">
+                    {Object.entries(optimizationResult.optimization.weights).map(([name, value], i) => (
+                      <div key={name} className="flex items-center gap-2">
+                        <div className="w-2 h-2 rounded-full" style={{ backgroundColor: COLORS[i % COLORS.length] }}></div>
+                        <span className="text-xs font-bold text-slate-700">{name}: {(value as number * 100).toFixed(0)}%</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="bg-white rounded-3xl border border-slate-100 p-8 shadow-sm flex flex-col justify-between">
+                  <div>
+                    <h3 className="text-lg font-bold text-slate-900 mb-6 font-display">Performance Forecast</h3>
+                    <div className="space-y-4">
+                      <div className="flex justify-between items-end">
+                        <span className="text-xs font-bold text-slate-400 uppercase tracking-widest">Expected Return</span>
+                        <span className="text-2xl font-black text-emerald-500">{(optimizationResult.optimization.expected_return * 100).toFixed(1)}%</span>
+                      </div>
+                      <div className="flex justify-between items-end">
+                        <span className="text-xs font-bold text-slate-400 uppercase tracking-widest">Annual Volatility</span>
+                        <span className="text-2xl font-black text-slate-900">{(optimizationResult.optimization.volatility * 100).toFixed(1)}%</span>
+                      </div>
+                      <div className="flex justify-between items-end">
+                        <span className="text-xs font-bold text-slate-400 uppercase tracking-widest">Sharpe Ratio</span>
+                        <span className="text-2xl font-black text-indigo-500">{optimizationResult.optimization.sharpe_ratio}</span>
+                      </div>
+                    </div>
+                  </div>
+                  <div className="mt-6 pt-6 border-t border-slate-50">
+                    <div className="flex items-center justify-between">
+                      <span className="px-3 py-1 bg-slate-900 text-white text-[10px] font-black rounded-full uppercase tracking-widest">
+                        {optimizationResult.optimization.strategy} Strategy
+                      </span>
+                      <button className="text-ares-green text-xs font-bold flex items-center gap-1 hover:underline">
+                        View Details <ChevronRight className="w-3 h-3" />
+                      </button>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="md:col-span-2 bg-white rounded-3xl border border-slate-100 p-8 shadow-sm">
+                  <h3 className="text-lg font-bold text-slate-900 mb-6 font-display">Growth Projection</h3>
+                  <div className="h-64">
+                    <ResponsiveContainer width="100%" height="100%">
+                      <AreaChart data={optimizationResult.backtest.growth}>
+                        <defs>
+                          <linearGradient id="colorPort" x1="0" y1="0" x2="0" y2="1">
+                            <stop offset="5%" stopColor="#36e27b" stopOpacity={0.1}/>
+                            <stop offset="95%" stopColor="#36e27b" stopOpacity={0}/>
+                          </linearGradient>
+                        </defs>
+                        <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+                        <XAxis dataKey="month" hide />
+                        <YAxis hide />
+                        <Tooltip 
+                          contentStyle={{ borderRadius: '16px', border: 'none', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)' }}
+                          formatter={(value: number) => [`$${value.toLocaleString()}`, 'Value']}
+                        />
+                        <Area type="monotone" dataKey="portfolio" stroke="#36e27b" strokeWidth={3} fillOpacity={1} fill="url(#colorPort)" />
+                        <Line type="monotone" dataKey="benchmark" stroke="#cbd5e1" strokeWidth={2} strokeDasharray="5 5" dot={false} />
+                      </AreaChart>
+                    </ResponsiveContainer>
+                  </div>
+                </div>
+              </motion.div>
+            ) : (
+              <motion.div 
+                key="placeholder"
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                className="bg-white rounded-3xl border border-slate-100 p-8 shadow-sm h-full flex flex-col"
+              >
+                <h3 className="text-lg font-bold text-slate-900 mb-8 font-display">Market Performance History</h3>
+                <div className="flex-1 min-h-[400px]">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <LineChart data={assets.slice(0, 5).map(a => ({ name: a.name, price: a.price }))}>
+                      <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+                      <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{ fontSize: 10, fontWeight: 700, fill: '#94a3b8' }} />
+                      <YAxis axisLine={false} tickLine={false} tick={{ fontSize: 10, fontWeight: 700, fill: '#94a3b8' }} />
+                      <Tooltip 
+                        contentStyle={{ borderRadius: '16px', border: 'none', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)' }}
+                      />
+                      <Line 
+                        type="monotone" 
+                        dataKey="price" 
+                        stroke="#36e27b" 
+                        strokeWidth={4} 
+                        dot={{ r: 4, fill: '#36e27b', strokeWidth: 2, stroke: '#fff' }}
+                        activeDot={{ r: 6, strokeWidth: 0 }}
+                      />
+                    </LineChart>
+                  </ResponsiveContainer>
+                </div>
+              </motion.div>
+            )}
+          </AnimatePresence>
+        </div>
+      </div>
+    </div>
+  );
+};
