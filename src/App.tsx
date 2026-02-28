@@ -9,6 +9,7 @@ import { EfficientFrontier } from './components/EfficientFrontier';
 import { Backtesting } from './components/Backtesting';
 import { IndicesSearch } from './components/IndicesSearch';
 import { VeoAnimation } from './components/VeoAnimation';
+import { Polymarket } from './components/Polymarket';
 
 export default function App() {
   const [activeTab, setActiveTab] = useState('dashboard');
@@ -21,7 +22,15 @@ export default function App() {
 
   useEffect(() => {
     // Initial data fetch
-    fetch('/api/assets').then(res => res.json()).then(setAssets);
+    fetch('/api/assets')
+      .then(res => res.json())
+      .then((payload) => {
+        if (Array.isArray(payload)) {
+          setAssets(payload);
+        } else if (Array.isArray(payload.data)) {
+          setAssets(payload.data);
+        }
+      });
     fetch('/api/risk-data').then(res => res.json()).then(setRiskData);
     fetch('/api/indices').then(res => res.json()).then(setIndices);
     fetch('/api/efficient-frontier').then(res => res.json()).then(setFrontierData);
@@ -77,6 +86,7 @@ export default function App() {
             {activeTab === 'frontier' && <EfficientFrontier data={frontierData} />}
             {activeTab === 'backtest' && <Backtesting data={backtestData} />}
             {activeTab === 'indices' && <IndicesSearch indices={indices} />}
+            {activeTab === 'polymarket' && <Polymarket />}
             {activeTab === 'veo' && <VeoAnimation />}
           </motion.div>
         </AnimatePresence>

@@ -31,13 +31,29 @@ interface IndicesSearchProps {
 export const IndicesSearch: React.FC<IndicesSearchProps> = ({ indices }) => {
   const [search, setSearch] = useState('');
   const [selectedId, setSelectedId] = useState(indices[0]?.id || '');
+  const [activeCategory, setActiveCategory] = useState<'ALL' | 'AMERICAS' | 'EMEA' | 'APAC' | 'COMMODITIES'>('ALL');
 
-  const filtered = indices.filter(idx => 
-    idx.name.toLowerCase().includes(search.toLowerCase()) || 
-    idx.id.toLowerCase().includes(search.toLowerCase())
-  );
+  const filtered = indices.filter(idx => {
+    const term = search.toLowerCase();
+    const matchesSearch = 
+      idx.name.toLowerCase().includes(term) || 
+      idx.id.toLowerCase().includes(term);
 
-  const selectedIndex = indices.find(idx => idx.id === selectedId) || indices[0];
+    const matchesCategory =
+      activeCategory === 'ALL'
+        ? true
+        : activeCategory === 'AMERICAS'
+          ? idx.region === 'US' || idx.region === 'Americas'
+          : activeCategory === 'EMEA'
+            ? idx.region === 'EMEA' || idx.region === 'Europe' || idx.region === 'UK'
+            : activeCategory === 'APAC'
+              ? idx.region === 'Asia Pacific'
+              : idx.region === 'Commodities';
+
+    return matchesSearch && matchesCategory;
+  });
+
+  const selectedIndex = filtered.find(idx => idx.id === selectedId) || filtered[0] || indices[0];
 
   return (
     <div className="flex flex-col h-full animate-in fade-in duration-500">
@@ -109,15 +125,22 @@ export const IndicesSearch: React.FC<IndicesSearchProps> = ({ indices }) => {
           </div>
 
           <div className="flex items-center gap-2 mb-6 overflow-x-auto pb-2 scrollbar-hide">
-            {['All Indices', 'Americas', 'EMEA', 'Asia Pacific', 'Commodities'].map((cat, i) => (
+            {[
+              { id: 'ALL', label: 'All Indices' },
+              { id: 'AMERICAS', label: 'Americas' },
+              { id: 'EMEA', label: 'EMEA' },
+              { id: 'APAC', label: 'Asia Pacific' },
+              { id: 'COMMODITIES', label: 'Commodities' },
+            ].map((cat) => (
               <button 
-                key={cat}
+                key={cat.id}
+                onClick={() => setActiveCategory(cat.id as any)}
                 className={cn(
                   "px-6 py-2.5 rounded-xl text-xs font-black uppercase tracking-widest transition-all whitespace-nowrap",
-                  i === 0 ? "bg-ares-green text-white shadow-lg shadow-ares-green/20" : "bg-white border border-slate-200 text-slate-500 hover:bg-slate-50"
+                  activeCategory === cat.id ? "bg-ares-green text-white shadow-lg shadow-ares-green/20" : "bg-white border border-slate-200 text-slate-500 hover:bg-slate-50"
                 )}
               >
-                {cat}
+                {cat.label}
               </button>
             ))}
           </div>

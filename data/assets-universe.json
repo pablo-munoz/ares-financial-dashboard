@@ -1,0 +1,60 @@
+[
+  { "ticker": "AAPL", "name": "Apple Inc.", "sector": "Technology", "country": "US", "basePrice": 190.0 },
+  { "ticker": "MSFT", "name": "Microsoft Corp.", "sector": "Technology", "country": "US", "basePrice": 420.0 },
+  { "ticker": "GOOGL", "name": "Alphabet Inc. Class A", "sector": "Communication Services", "country": "US", "basePrice": 145.0 },
+  { "ticker": "AMZN", "name": "Amazon.com Inc.", "sector": "Consumer Discretionary", "country": "US", "basePrice": 180.0 },
+  { "ticker": "META", "name": "Meta Platforms Inc.", "sector": "Communication Services", "country": "US", "basePrice": 480.0 },
+  { "ticker": "TSLA", "name": "Tesla Inc.", "sector": "Consumer Discretionary", "country": "US", "basePrice": 195.0 },
+  { "ticker": "NVDA", "name": "NVIDIA Corp.", "sector": "Technology", "country": "US", "basePrice": 820.0 },
+  { "ticker": "NFLX", "name": "Netflix Inc.", "sector": "Communication Services", "country": "US", "basePrice": 550.0 },
+  { "ticker": "ADBE", "name": "Adobe Inc.", "sector": "Technology", "country": "US", "basePrice": 600.0 },
+  { "ticker": "CRM", "name": "Salesforce Inc.", "sector": "Technology", "country": "US", "basePrice": 280.0 },
+  { "ticker": "ORCL", "name": "Oracle Corp.", "sector": "Technology", "country": "US", "basePrice": 130.0 },
+  { "ticker": "INTC", "name": "Intel Corp.", "sector": "Technology", "country": "US", "basePrice": 40.0 },
+
+  { "ticker": "JPM", "name": "JPMorgan Chase & Co.", "sector": "Financials", "country": "US", "basePrice": 185.0 },
+  { "ticker": "BAC", "name": "Bank of America Corp.", "sector": "Financials", "country": "US", "basePrice": 40.0 },
+  { "ticker": "C", "name": "Citigroup Inc.", "sector": "Financials", "country": "US", "basePrice": 50.0 },
+  { "ticker": "WFC", "name": "Wells Fargo & Co.", "sector": "Financials", "country": "US", "basePrice": 50.0 },
+  { "ticker": "V", "name": "Visa Inc. Class A", "sector": "Financials", "country": "US", "basePrice": 280.0 },
+  { "ticker": "MA", "name": "Mastercard Inc. Class A", "sector": "Financials", "country": "US", "basePrice": 420.0 },
+
+  { "ticker": "XOM", "name": "Exxon Mobil Corp.", "sector": "Energy", "country": "US", "basePrice": 115.0 },
+  { "ticker": "CVX", "name": "Chevron Corp.", "sector": "Energy", "country": "US", "basePrice": 160.0 },
+  { "ticker": "COP", "name": "ConocoPhillips", "sector": "Energy", "country": "US", "basePrice": 120.0 },
+
+  { "ticker": "UNH", "name": "UnitedHealth Group Inc.", "sector": "Health Care", "country": "US", "basePrice": 520.0 },
+  { "ticker": "JNJ", "name": "Johnson & Johnson", "sector": "Health Care", "country": "US", "basePrice": 160.0 },
+  { "ticker": "PFE", "name": "Pfizer Inc.", "sector": "Health Care", "country": "US", "basePrice": 30.0 },
+  { "ticker": "MRK", "name": "Merck & Co. Inc.", "sector": "Health Care", "country": "US", "basePrice": 130.0 },
+
+  { "ticker": "PG", "name": "Procter & Gamble Co.", "sector": "Consumer Staples", "country": "US", "basePrice": 160.0 },
+  { "ticker": "KO", "name": "Coca-Cola Co.", "sector": "Consumer Staples", "country": "US", "basePrice": 65.0 },
+  { "ticker": "PEP", "name": "PepsiCo Inc.", "sector": "Consumer Staples", "country": "US", "basePrice": 180.0 },
+  { "ticker": "WMT", "name": "Walmart Inc.", "sector": "Consumer Staples", "country": "US", "basePrice": 165.0 },
+
+  { "ticker": "HD", "name": "Home Depot Inc.", "sector": "Consumer Discretionary", "country": "US", "basePrice": 370.0 },
+  { "ticker": "MCD", "name": "McDonald's Corp.", "sector": "Consumer Discretionary", "country": "US", "basePrice": 290.0 },
+  { "ticker": "NKE", "name": "Nike Inc. Class B", "sector": "Consumer Discretionary", "country": "US", "basePrice": 110.0 },
+
+  { "ticker": "BA", "name": "Boeing Co.", "sector": "Industrials", "country": "US", "basePrice": 200.0 },
+  { "ticker": "CAT", "name": "Caterpillar Inc.", "sector": "Industrials", "country": "US", "basePrice": 320.0 },
+  { "ticker": "UPS", "name": "United Parcel Service Inc. Class B", "sector": "Industrials", "country": "US", "basePrice": 150.0 },
+
+  { "ticker": "SPY", "name": "SPDR S&P 500 ETF", "sector": "ETF", "country": "US", "basePrice": 520.0 },
+  { "ticker": "QQQ", "name": "Invesco QQQ Trust", "sector": "ETF", "country": "US", "basePrice": 430.0 },
+  { "ticker": "IWM", "name": "iShares Russell 2000 ETF", "sector": "ETF", "country": "US", "basePrice": 205.0 },
+
+  { "ticker": "NESN.SW", "name": "Nestlé S.A.", "sector": "Consumer Staples", "country": "CH", "basePrice": 105.0 },
+  { "ticker": "SAP.DE", "name": "SAP SE", "sector": "Technology", "country": "DE", "basePrice": 180.0 },
+  { "ticker": "ASML.AS", "name": "ASML Holding N.V.", "sector": "Technology", "country": "NL", "basePrice": 850.0 },
+  { "ticker": "BMW.DE", "name": "Bayerische Motoren Werke AG", "sector": "Consumer Discretionary", "country": "DE", "basePrice": 110.0 },
+
+  { "ticker": "7203.T", "name": "Toyota Motor Corp.", "sector": "Consumer Discretionary", "country": "JP", "basePrice": 2500.0 },
+  { "ticker": "6758.T", "name": "Sony Group Corp.", "sector": "Communication Services", "country": "JP", "basePrice": 130.0 },
+  { "ticker": "005930.KS", "name": "Samsung Electronics Co. Ltd.", "sector": "Technology", "country": "KR", "basePrice": 70.0 },
+
+  { "ticker": "BABA", "name": "Alibaba Group Holding Ltd.", "sector": "Consumer Discretionary", "country": "CN", "basePrice": 80.0 },
+  { "ticker": "TCEHY", "name": "Tencent Holdings Ltd.", "sector": "Communication Services", "country": "CN", "basePrice": 50.0 }
+]
+

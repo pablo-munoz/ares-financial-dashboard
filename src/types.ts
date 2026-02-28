@@ -50,3 +50,37 @@ export interface PriceUpdate {
   price: number;
   change: number;
 }
+
+export interface PolymarketAlphaSignal {
+  id: string;
+  marketName: string;
+  fairValue: number;    // 0–1 probability
+  marketPrice: number;  // 0–1 market price
+  ev: number;           // edge in percentage points
+  kellyStake: number;   // suggested Kelly fraction in %
+}
+
+export interface PolymarketInsider {
+  address: string;
+  score: number; // 0-100
+  label: 'High Suspicion' | 'Watchlist';
+  reasons: string[];
+  topMarket?: string;
+  lastSeen?: number; // epoch seconds
+}
+
+export interface PolymarketWhaleTrade {
+  id: string;
+  time: string;
+  market: string;
+  address: string;
+  amount: number;
+  side: 'YES' | 'NO';
+}
+
+export interface PolymarketData {
+  alphaSignals: PolymarketAlphaSignal[];
+  insiders: PolymarketInsider[];
+  whaleFeed: PolymarketWhaleTrade[];
+  lastUpdated?: number; // epoch ms
+}
