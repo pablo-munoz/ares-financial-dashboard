@@ -62,17 +62,20 @@ export interface PolymarketAlphaSignal {
 
 export interface PolymarketInsider {
   address: string;
-  score: number; // 0-100
-  label: 'High Suspicion' | 'Watchlist';
+  score: number; // 0-100 (percentile within scored pool)
+  label: 'High Suspicion' | 'Moderate' | 'Watchlist';
   reasons: string[];
   topMarket?: string;
   lastSeen?: number; // epoch seconds
+  trend?: 'up' | 'down' | 'stable' | 'new'; // score trajectory vs previous cycle
+  winRate?: number; // 0-1, only present when >=3 resolved positions available
 }
 
 export interface PolymarketWhaleTrade {
   id: string;
   time: string;
   market: string;
+  slug?: string;
   address: string;
   amount: number;
   side: 'YES' | 'NO';

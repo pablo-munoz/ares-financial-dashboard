@@ -1,17 +1,19 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { 
-  Search, 
-  Zap, 
+import {
+  Search,
+  Zap,
   Loader2,
-  TrendingUp, 
-  Users, 
-  Activity, 
-  ShieldCheck, 
-  ArrowUpRight, 
+  TrendingUp,
+  Users,
+  Activity,
+  ShieldCheck,
+  ArrowUpRight,
   UserPlus,
+  User,
   AlertCircle,
   X,
-  Wallet
+  Wallet,
+  ExternalLink
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { PolymarketData } from '../types';
@@ -52,7 +54,7 @@ export const Polymarket: React.FC = () => {
           if (!isMounted) return;
           setData(d);
         })
-        .catch(() => {});
+        .catch(() => { });
     }, 15_000);
 
     return () => {
@@ -122,15 +124,15 @@ export const Polymarket: React.FC = () => {
       <header className="flex flex-col md:flex-row md:items-center justify-between gap-6 bg-white p-6 rounded-3xl border border-slate-100 shadow-sm">
         <div className="flex-1 max-w-md relative">
           <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-          <input 
-            type="text" 
+          <input
+            type="text"
             placeholder="Search markets (e.g. Bitcoin, Election, AI)..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             className="w-full pl-11 pr-4 py-3 bg-slate-50 border border-slate-100 rounded-2xl outline-none focus:ring-2 focus:ring-ares-green text-sm font-medium"
           />
         </div>
-        
+
         <div className="flex items-center gap-6">
           <div className="flex items-center gap-2">
             <div className={cn(
@@ -141,7 +143,7 @@ export const Polymarket: React.FC = () => {
               {isLive ? 'Live Data' : 'Snapshot Data'}
             </span>
           </div>
-          
+
           <button
             onClick={refreshAlpha}
             disabled={isRefreshingAlpha}
@@ -166,10 +168,10 @@ export const Polymarket: React.FC = () => {
             Refresh signals
           </button>
         </div>
-        
+
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
           {filteredSignals.map((signal, i) => (
-            <motion.div 
+            <motion.div
               key={signal.id}
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
@@ -188,9 +190,9 @@ export const Polymarket: React.FC = () => {
                   <ArrowUpRight className="w-4 h-4 text-slate-400 group-hover:text-ares-green" />
                 </div>
               </div>
-              
+
               <h3 className="font-bold text-slate-900 mb-4 line-clamp-2 min-h-[3rem]">{signal.marketName}</h3>
-              
+
               <div className="grid grid-cols-2 gap-4 pt-4 border-t border-slate-50">
                 <div>
                   <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">
@@ -217,7 +219,7 @@ export const Polymarket: React.FC = () => {
                   <p className="text-lg font-black text-slate-900">{(signal.marketPrice * 100).toFixed(0)}%</p>
                 </div>
               </div>
-              
+
               <div className="mt-4 p-3 bg-slate-900 rounded-2xl flex items-center justify-between">
                 <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">
                   Kelly Stake
@@ -235,9 +237,9 @@ export const Polymarket: React.FC = () => {
         </div>
       </section>
 
-      <div className="grid grid-cols-1 lg:grid-cols-4 gap-8">
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
         {/* Whale/Insider Terminal */}
-        <div className="lg:col-span-3 space-y-4">
+        <div className="lg:col-span-8 space-y-4">
           <div className="flex items-center gap-2 px-2">
             <Users className="w-5 h-5 text-ares-green" />
             <h2 className="text-xl font-bold font-display">Insider Terminal</h2>
@@ -257,66 +259,105 @@ export const Polymarket: React.FC = () => {
               Refresh insiders
             </button>
           </div>
-          
-          <div className="bg-white rounded-3xl border border-slate-100 shadow-sm overflow-hidden">
-            <table className="w-full text-left border-collapse">
+
+          <div className="bg-white rounded-3xl border border-slate-100 shadow-sm overflow-x-auto">
+            <table className="w-full text-left border-collapse min-w-[1000px]">
               <thead>
                 <tr className="bg-slate-50 border-bottom border-slate-100">
-                  <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">Wallet Address</th>
-                  <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">Score</th>
-                  <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">Label</th>
+                  <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest w-[200px]">Wallet Address</th>
+                  <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest w-[100px]">Score</th>
+                  <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest w-[130px]">Label</th>
                   <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">Reasons</th>
+                  <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest w-[100px]">Win Rate</th>
                   <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">Top Market</th>
-                  <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest text-right">Action</th>
+                  <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest text-right w-[120px]">Action</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-50">
                 {data.insiders.map((insider) => (
                   <tr key={insider.address} className="hover:bg-slate-50/50 transition-colors">
                     <td className="px-6 py-4">
-                      <div className="flex items-center gap-2">
-                        <div className="w-8 h-8 rounded-full bg-slate-100 flex items-center justify-center">
-                          <Wallet className="w-4 h-4 text-slate-400" />
+                      <a
+                        href={`https://polymarket.com/profile/${insider.address}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="flex items-center gap-2 group/link w-fit"
+                        title={insider.address}
+                      >
+                        <div className="w-8 h-8 rounded-full bg-slate-100 flex items-center justify-center group-hover/link:bg-ares-green/10 transition-colors shrink-0">
+                          <Wallet className="w-4 h-4 text-slate-400 group-hover/link:text-ares-green transition-colors" />
                         </div>
-                        <span className="font-mono text-sm font-bold text-slate-600">{insider.address}</span>
+                        <span className="font-mono text-xs font-bold text-slate-600 group-hover/link:text-ares-green truncate max-w-[120px]">
+                          {insider.address}
+                        </span>
+                        <ExternalLink className="w-3 h-3 text-slate-300 group-hover/link:text-ares-green transition-colors opacity-0 group-hover/link:opacity-100 shrink-0" />
+                      </a>
+                    </td>
+                    <td className="px-6 py-4">
+                      <div className="flex items-center gap-1.5">
+                        <span className={cn(
+                          "text-sm font-black",
+                          insider.score >= 75 ? "text-rose-500" :
+                            insider.score >= 50 ? "text-amber-500" :
+                              "text-slate-400"
+                        )}>
+                          {insider.score}%
+                        </span>
+                        {insider.trend === 'up' && <span className="text-[10px] font-black text-ares-green" title="Score rising">↑</span>}
+                        {insider.trend === 'down' && <span className="text-[10px] font-black text-rose-400" title="Score falling">↓</span>}
+                        {insider.trend === 'stable' && <span className="text-[10px] font-black text-slate-300" title="Score stable">→</span>}
+                        {insider.trend === 'new' && <span className="text-[10px] font-black text-ares-green" title="First appearance">★</span>}
                       </div>
                     </td>
                     <td className="px-6 py-4">
                       <span className={cn(
-                        "text-sm font-black",
-                        insider.score >= 75 ? "text-rose-500" : "text-amber-600"
-                      )}>
-                        {insider.score}%
-                      </span>
-                    </td>
-                    <td className="px-6 py-4">
-                      <span className={cn(
-                        "text-[10px] font-black uppercase tracking-widest px-2 py-1 rounded-full",
-                        insider.label === 'High Suspicion' ? "bg-rose-50 text-rose-600" : "bg-amber-50 text-amber-700"
+                        "text-[10px] font-black uppercase tracking-widest px-2 py-1 rounded-full whitespace-nowrap",
+                        insider.label === 'High Suspicion'
+                          ? "bg-rose-50 text-rose-600"
+                          : insider.label === 'Moderate'
+                            ? "bg-amber-50 text-amber-600"
+                            : "bg-slate-100 text-slate-500"
                       )}>
                         {insider.label}
                       </span>
                     </td>
                     <td className="px-6 py-4">
-                      <div className="flex flex-wrap gap-1">
-                        {insider.reasons.map((r) => (
+                      <div className="flex flex-wrap gap-1 min-w-[200px]">
+                        {insider.reasons.slice(0, 3).map((r) => (
                           <span
                             key={r}
-                            className="text-[10px] font-black uppercase tracking-widest px-2 py-1 rounded-full bg-slate-50 text-slate-500"
+                            className="text-[9px] font-black uppercase tracking-widest px-2 py-0.5 rounded-full bg-slate-50 text-slate-500 whitespace-nowrap"
                           >
                             {r}
                           </span>
                         ))}
+                        {insider.reasons.length > 3 && (
+                          <span className="text-[9px] font-black text-slate-300">+{insider.reasons.length - 3}</span>
+                        )}
                       </div>
                     </td>
                     <td className="px-6 py-4">
-                      <span className="text-xs font-medium text-slate-500 line-clamp-2">
+                      {insider.winRate !== undefined ? (
+                        <span className={cn(
+                          "text-xs font-black",
+                          insider.winRate >= 0.65 ? "text-ares-green" :
+                            insider.winRate >= 0.50 ? "text-slate-600" :
+                              "text-rose-400"
+                        )}>
+                          {Math.round(insider.winRate * 100)}%
+                        </span>
+                      ) : (
+                        <span className="text-xs text-slate-300 font-medium">—</span>
+                      )}
+                    </td>
+                    <td className="px-6 py-4">
+                      <span className="text-[10px] font-medium text-slate-500 line-clamp-2 min-w-[150px]">
                         {insider.topMarket ?? '—'}
                       </span>
                     </td>
                     <td className="px-6 py-4 text-right">
-                      <button className="px-4 py-2 bg-slate-900 text-white text-[10px] font-black uppercase tracking-widest rounded-xl hover:bg-slate-800 transition-all flex items-center gap-2 ml-auto">
-                        <UserPlus className="w-3 h-3" /> Follow
+                      <button className="px-3 py-1.5 bg-slate-900 text-white text-[9px] font-black uppercase tracking-widest rounded-lg hover:bg-slate-800 transition-all flex items-center gap-1.5 ml-auto whitespace-nowrap">
+                        <UserPlus className="w-2.5 h-2.5" /> Follow
                       </button>
                     </td>
                   </tr>
@@ -327,21 +368,21 @@ export const Polymarket: React.FC = () => {
         </div>
 
         {/* Whale Activity Feed */}
-        <div className="space-y-4">
+        <div className="lg:col-span-4 space-y-4">
           <div className="flex items-center gap-2 px-2">
             <Activity className="w-5 h-5 text-ares-green" />
             <h2 className="text-xl font-bold font-display">Whale Feed</h2>
           </div>
-          
+
           <div className="bg-slate-900 rounded-3xl p-6 shadow-xl shadow-slate-900/20 text-white min-h-[400px]">
             <div className="space-y-6">
               {data.whaleFeed.map((trade, i) => (
-                <motion.div 
+                <motion.div
                   key={trade.id}
                   initial={{ opacity: 0, x: 20 }}
                   animate={{ opacity: 1, x: 0 }}
                   transition={{ delay: i * 0.1 }}
-                  className="relative pl-4 border-l-2 border-white/10"
+                  className="group relative pl-4 border-l-2 border-white/10"
                 >
                   <div className="flex justify-between items-start mb-1">
                     <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">{trade.time}</span>
@@ -352,9 +393,30 @@ export const Polymarket: React.FC = () => {
                       {trade.side}
                     </span>
                   </div>
-                  <p className="text-sm font-bold mb-1">{trade.market}</p>
+
+                  {trade.slug ? (
+                    <a
+                      href={`https://polymarket.com/event/${trade.slug}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="block text-sm font-bold mb-1 hover:text-ares-green transition-colors leading-snug"
+                    >
+                      {trade.market}
+                    </a>
+                  ) : (
+                    <p className="text-sm font-bold mb-1 leading-snug">{trade.market}</p>
+                  )}
+
                   <div className="flex items-center justify-between">
-                    <span className="text-xs text-slate-400 font-mono">{trade.address}</span>
+                    <a
+                      href={`https://polymarket.com/profile/${trade.address}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-xs text-slate-400 font-mono hover:text-ares-green transition-colors flex items-center gap-1.5"
+                    >
+                      <User className="w-3 h-3 text-slate-600" />
+                      {trade.address}
+                    </a>
                     <span className="text-xs font-black text-ares-green">${trade.amount.toLocaleString()}</span>
                   </div>
                 </motion.div>
@@ -368,14 +430,14 @@ export const Polymarket: React.FC = () => {
       <AnimatePresence>
         {isPanelOpen && (
           <>
-            <motion.div 
+            <motion.div
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
               onClick={() => setIsPanelOpen(false)}
               className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-40"
             />
-            <motion.div 
+            <motion.div
               initial={{ x: '100%' }}
               animate={{ x: 0 }}
               exit={{ x: '100%' }}
@@ -384,7 +446,7 @@ export const Polymarket: React.FC = () => {
             >
               <div className="flex items-center justify-between mb-8">
                 <h2 className="text-2xl font-bold font-display">Execute Trade</h2>
-                <button 
+                <button
                   onClick={() => setIsPanelOpen(false)}
                   className="p-2 hover:bg-slate-100 rounded-full transition-colors"
                 >
@@ -416,17 +478,17 @@ export const Polymarket: React.FC = () => {
                       <ShieldCheck className="w-5 h-5 text-ares-green" />
                       <h4 className="font-bold text-slate-900">Risk Manager</h4>
                     </div>
-                    
+
                     <div className="p-6 bg-slate-900 rounded-3xl text-white space-y-6">
                       <div className="space-y-2">
                         <div className="flex justify-between">
                           <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Total Bankroll</label>
                           <span className="text-sm font-black text-ares-green">${bankroll.toLocaleString()}</span>
                         </div>
-                        <input 
-                          type="range" 
-                          min="1000" 
-                          max="100000" 
+                        <input
+                          type="range"
+                          min="1000"
+                          max="100000"
                           step="1000"
                           value={bankroll}
                           onChange={(e) => setBankroll(parseInt(e.target.value))}

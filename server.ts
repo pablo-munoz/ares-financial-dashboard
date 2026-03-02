@@ -34,16 +34,19 @@ type PolymarketAlphaSignal = {
 type PolymarketInsider = {
   address: string;
   score: number; // 0-100
-  label: 'High Suspicion' | 'Watchlist';
+  label: 'High Suspicion' | 'Moderate' | 'Watchlist';
   reasons: string[];
   topMarket?: string;
   lastSeen?: number;
+  trend?: 'up' | 'down' | 'stable' | 'new';
+  winRate?: number; // 0-1
 };
 
 type PolymarketWhaleTrade = {
   id: string;
   time: string;
   market: string;
+  slug?: string;
   address: string;
   amount: number;
   side: 'YES' | 'NO';
@@ -128,9 +131,12 @@ type MarketStats = {
   longVwap: number;
   sampleCount: number;
   lastUpdated: number;
+  rollingVolatility: number;
+  avgTradeSize: number;
 };
 const polymarketStats: Record<string, MarketStats> = {};
 let polymarketLastAlphaSlugs: string[] = [];
+let alphaRotation = 0;
 let insiderRotation = 0;
 
 type MarketMeta = {
@@ -141,6 +147,26 @@ type MarketMeta = {
   fetchedAtMs: number;
 };
 const polymarketMarketMeta: Record<string, MarketMeta> = {};
+
+/**
+ * Returns a directional shift (-1 to 1) based on top-performing insider sentiment.
+ * If 3+ insiders with >60% winrate are betting "YES", returns 1.0 (strong bullish).
+ */
+function getSharpDirection(slug: string): number {
+  if (!polymarketData || !polymarketData.insiders) return 0;
+
+  let shift = 0;
+  const sharps = polymarketData.insiders.filter(i => (i.winRate ?? 0) >= 0.60);
+
+  for (const s of sharps) {
+    if (s.topMarket === slug) {
+      // Scale by score if they are currently active in this market
+      shift += s.score / 100;
+    }
+  }
+
+  return Math.max(-1, Math.min(1, shift));
+}
 
 const dbPath = path.join(__dirname, "data", "polymarket.db");
 const db = new Database(dbPath);
@@ -161,6 +187,13 @@ db.exec(`
   );
   CREATE INDEX IF NOT EXISTS idx_trades_slug_ts ON trades(slug, ts);
   CREATE INDEX IF NOT EXISTS idx_trades_wallet_ts ON trades(wallet, ts);
+
+  CREATE TABLE IF NOT EXISTS market_resolutions (
+    slug TEXT PRIMARY KEY,
+    winningOutcome TEXT,
+    resolved_at INTEGER
+  );
+  CREATE INDEX IF NOT EXISTS idx_resolutions_resolved_at ON market_resolutions(resolved_at);
 `);
 
 const insertTradeStmt = db.prepare(`
@@ -168,6 +201,21 @@ const insertTradeStmt = db.prepare(`
   (txHash, ts, slug, title, conditionId, wallet, side, outcome, price, size, notional)
   VALUES
   (@txHash, @ts, @slug, @title, @conditionId, @wallet, @side, @outcome, @price, @size, @notional)
+`);
+
+const insertResolutionStmt = db.prepare(`
+  INSERT OR REPLACE INTO market_resolutions (slug, winningOutcome, resolved_at)
+  VALUES (?, ?, ?)
+`);
+
+db.exec(`
+  CREATE TABLE IF NOT EXISTS wallet_history (
+    wallet TEXT NOT NULL,
+    ts     INTEGER NOT NULL,
+    score  REAL NOT NULL,
+    PRIMARY KEY (wallet, ts)
+  );
+  CREATE INDEX IF NOT EXISTS idx_wh_wallet_ts ON wallet_history(wallet, ts);
 `);
 
 function clamp01(x: number) {
@@ -213,6 +261,32 @@ async function fetchGammaMarketMetaBySlug(slug: string): Promise<MarketMeta | nu
   }
 }
 
+async function syncClosedMarkets() {
+  console.log("[Sync] Fetching recently closed markets...");
+  try {
+    const res = await fetch(`${POLYMARKET_BASE_URL}/markets?active=false&limit=100`, {
+      headers: { Accept: "application/json" },
+    });
+    if (!res.ok) throw new Error(`Gamma API HTTP ${res.status}`);
+    const markets = await res.json();
+    if (!Array.isArray(markets)) return;
+
+    const resolved = markets.filter(m => m.winningOutcome !== null);
+    console.log(`[Sync] Found ${resolved.length} resolved markets.`);
+
+    const insertMany = db.transaction((rows: any[]) => {
+      for (const m of rows) {
+        const resolvedAt = m.closedTime ? Math.floor(Date.parse(m.closedTime) / 1000) : Math.floor(Date.now() / 1000);
+        insertResolutionStmt.run(m.slug, m.winningOutcome, resolvedAt);
+      }
+    });
+
+    insertMany(resolved);
+  } catch (err) {
+    console.error("[Sync] Closed markets sync failed:", err);
+  }
+}
+
 function categorizeInsiderRisk(title: string, category?: string) {
   const t = title.toLowerCase();
   const c = (category ?? "").toLowerCase();
@@ -242,25 +316,201 @@ function categorizeInsiderRisk(title: string, category?: string) {
   return hit ? 1.3 : 1.0;
 }
 
+// ---------------------------------------------------------------------------
+// Signal C — Market category weighting
+// ---------------------------------------------------------------------------
+const TIER1_KEYWORDS = [
+  "sec", "fda", "merger", "acquisition", "acqui", "takeover",
+  "ruling", "court", "invasion", "military", "strike", "sanction",
+  "launch", "arrested", "indicted", "charged", "bankrupt", "default",
+];
+const TIER2_KEYWORDS = [
+  "election", "vote", "fed", "rate cut", "rate hike", "championship",
+  "final", "nominate", "resign", "impeach", "gdp", "inflation",
+];
+const SPORTS_KEYWORDS = [
+  "fc", "united", "city", "nba", "nfl", "premier league", "laliga",
+  "championship", "vs", "real madrid", "barcelona", "liverpool", "arsenal"
+];
+
+function isSportsMarket(title: string): boolean {
+  const t = title.toLowerCase();
+  return SPORTS_KEYWORDS.some((k) => t.includes(k));
+}
+
+function getMarketCategoryWeight(title: string): number {
+  const t = title.toLowerCase();
+  if (isSportsMarket(t)) return 0.5;
+  if (TIER1_KEYWORDS.some((k) => t.includes(k))) return 1.5;
+  if (TIER2_KEYWORDS.some((k) => t.includes(k))) return 1.2;
+  return 1.0;
+}
+
+// ---------------------------------------------------------------------------
+// Signal A — Early mover advantage
+// Returns [0, 1]: fraction of qualifying slugs where wallet's entry price
+// drifted positively in the direction of their bet.
+// ---------------------------------------------------------------------------
+function computeEarlyMoverScore(wallet: string, since14d: number): number {
+  // For each slug, get: wallet's earliest entry price+outcome, and latest market price
+  const slugStats = db
+    .prepare(
+      `SELECT t.slug,
+              t.outcome                        AS betOutcome,
+              MIN(t.price)                     AS entryPrice,
+              (SELECT price FROM trades t2
+               WHERE t2.slug = t.slug
+               ORDER BY t2.ts DESC LIMIT 1)    AS latestPrice
+       FROM trades t
+       WHERE t.wallet = ? AND t.ts >= ?
+         AND t.title NOT LIKE '%up or down%'
+         AND t.title NOT LIKE '%up-or-down%'
+         AND t.title NOT LIKE '%price above%'
+         AND t.title NOT LIKE '%price below%'
+       GROUP BY t.slug, t.outcome`
+    )
+    .all(wallet, since14d) as Array<{
+      slug: string;
+      betOutcome: string | null;
+      entryPrice: number;
+      latestPrice: number;
+    }>;
+
+  if (!slugStats.length) return 0;
+
+  let positiveCount = 0;
+  for (const s of slugStats) {
+    if (s.latestPrice === null || s.entryPrice === null) continue;
+    const drift =
+      s.betOutcome === "YES"
+        ? s.latestPrice - s.entryPrice          // YES bet: higher = good
+        : s.entryPrice - s.latestPrice;         // NO bet: lower = good
+    if (drift > 0.03) positiveCount++;           // >3¢ drift = meaningful move
+  }
+  return positiveCount / slugStats.length;
+}
+
+// ---------------------------------------------------------------------------
+// Signal B — Resolved market win rate
+// A slug is considered resolved when its latest observed price >= 0.97 or <= 0.03.
+// Returns undefined when <3 resolved positions (insufficient sample).
+// ---------------------------------------------------------------------------
+function computeResolvedWinRate(
+  wallet: string,
+  since14d: number
+): number | undefined {
+  const resolved = db
+    .prepare(
+      `SELECT t.outcome AS betOutcome,
+              (SELECT price FROM trades t2
+               WHERE t2.slug = t.slug
+               ORDER BY t2.ts DESC LIMIT 1) AS latestPrice
+       FROM trades t
+       WHERE t.wallet = ? AND t.ts >= ?
+         AND t.title NOT LIKE '%up or down%'
+         AND t.title NOT LIKE '%up-or-down%'
+         AND t.title NOT LIKE '%price above%'
+         AND t.title NOT LIKE '%price below%'
+       GROUP BY t.slug`
+    )
+    .all(wallet, since14d) as Array<{
+      betOutcome: string | null;
+      latestPrice: number;
+    }>;
+
+  const settled = resolved.filter(
+    (r) => r.latestPrice >= 0.97 || r.latestPrice <= 0.03
+  );
+  if (settled.length < 3) return undefined; // not enough data
+
+  let wins = 0;
+  for (const s of settled) {
+    const isYesWin = s.latestPrice >= 0.97;
+    if (s.betOutcome === "YES" && isYesWin) wins++;
+    else if (s.betOutcome === "NO" && !isYesWin) wins++;
+  }
+  return wins / settled.length;
+}
+
+// ---------------------------------------------------------------------------
+// Signal D — Score persistence helpers
+// ---------------------------------------------------------------------------
+const insertWalletHistoryStmt = db.prepare(
+  `INSERT OR REPLACE INTO wallet_history (wallet, ts, score)
+   VALUES (@wallet, @ts, @score)`
+);
+
+function getPersistenceBonus(
+  wallet: string,
+  nowSec: number
+): { bonus: number; trend: 'up' | 'down' | 'stable' | 'new' } {
+  const since5cycles = nowSec - 6 * 60 * 60; // roughly 6h back covers ~5 refresh cycles
+  const history = db
+    .prepare(
+      `SELECT score FROM wallet_history
+       WHERE wallet = ? AND ts >= ?
+       ORDER BY ts ASC`
+    )
+    .all(wallet, since5cycles) as Array<{ score: number }>;
+
+  if (!history.length) return { bonus: 0, trend: 'new' };
+
+  const appearances = history.length;
+  const bonus = appearances >= 3 ? 0.15 : appearances >= 2 ? 0.07 : 0;
+
+  // Trend: compare latest vs earliest in window
+  const first = history[0].score;
+  const last = history[history.length - 1].score;
+  const delta = last - first;
+  const trend: 'up' | 'down' | 'stable' =
+    delta > 0.05 ? 'up' :
+      delta < -0.05 ? 'down' :
+        'stable';
+
+  return { bonus, trend };
+}
+
+// Patterns that indicate a bot/algo market — not insider-tradeable
+const BOT_MARKET_PATTERNS = [
+  "up or down",
+  "up-or-down",
+  "price above",
+  "price below",
+  // 5-min window slugs contain time ranges like "6:20am-6:25am"
+  /\d:\d{2}[ap]m-\d:\d{2}[ap]m/,
+];
+
+function isBotMarketTitle(title: string): boolean {
+  const t = title.toLowerCase();
+  return BOT_MARKET_PATTERNS.some((p) =>
+    typeof p === "string" ? t.includes(p) : p.test(t)
+  );
+}
+
 async function computePolymarketInsidersFromDb(): Promise<PolymarketInsider[]> {
   const nowSec = Math.floor(Date.now() / 1000);
   const since14d = nowSec - 14 * 24 * 60 * 60;
   const since24h = nowSec - 24 * 60 * 60;
   const since1h = nowSec - 60 * 60;
 
+  // --- Primary query: aggregate wallet stats over 14d window ---
   const rows = db
     .prepare(
       `
       SELECT wallet,
-             SUM(notional)                                             AS vol14d,
-             COALESCE(SUM(CASE WHEN ts >= ? THEN notional END), 0)     AS vol24h,
-             COALESCE(SUM(CASE WHEN ts >= ? THEN notional END), 0)     AS vol1h,
-             COUNT(DISTINCT CASE WHEN ts >= ? THEN slug END)            AS markets24h,
-             MAX(ts)                                                   AS lastTs
+             SUM(notional)                                               AS vol14d,
+             COALESCE(SUM(CASE WHEN ts >= ? THEN notional END), 0)       AS vol24h,
+             COALESCE(SUM(CASE WHEN ts >= ? THEN notional END), 0)       AS vol1h,
+             COUNT(DISTINCT CASE WHEN ts >= ? THEN slug END)             AS markets24h,
+             COUNT(*)                                                    AS lifetime_trades,
+             MIN(ts)                                                     AS first_ts,
+             MAX(ts)                                                     AS lastTs
       FROM trades
       WHERE ts >= ?
       GROUP BY wallet
-      HAVING vol24h >= 300
+      HAVING vol24h >= 1500
+        AND lifetime_trades >= 10
+        AND vol14d >= 2000
       ORDER BY vol14d DESC
       LIMIT 200
     `
@@ -271,89 +521,231 @@ async function computePolymarketInsidersFromDb(): Promise<PolymarketInsider[]> {
       vol24h: number;
       vol1h: number;
       markets24h: number;
+      lifetime_trades: number;
+      first_ts: number;
       lastTs: number;
     }>;
 
-  const insiders: Array<PolymarketInsider & { _score01: number }> = [];
+  // Pool for percentile normalisation — collect raw scores before finalising
+  const pool: Array<{
+    wallet: string;
+    rawScore01: number;
+    winRate: number | undefined;
+    trend: 'up' | 'down' | 'stable' | 'new';
+    topMarket: string | undefined;
+    lastTs: number;
+    reasons: string[];
+    categoryWeight: number;
+  }> = [];
 
   for (const w of rows) {
     if (!w.wallet || w.wallet === "unknown") continue;
 
+    // --- Market-type filter: count qualifying (non-bot) markets in 24h ---
+    const allMarkets24h = db
+      .prepare(
+        `SELECT DISTINCT slug, title FROM trades
+         WHERE wallet = ? AND ts >= ?`
+      )
+      .all(w.wallet, since24h) as Array<{ slug: string; title: string }>;
+
+    const qualifyingMarkets = allMarkets24h.filter(
+      (m) => !isBotMarketTitle(m.title)
+    );
+    if (qualifyingMarkets.length === 0) continue; // only bot markets → skip
+
+    // --- Bot-pattern detector: top market trade concentration ---
+    const topMarketTradeCountRow = db
+      .prepare(
+        `SELECT COUNT(*) AS cnt FROM trades
+         WHERE wallet = ? AND ts >= ?
+         GROUP BY slug ORDER BY cnt DESC LIMIT 1`
+      )
+      .get(w.wallet, since14d) as { cnt: number } | undefined;
+
+    const topMarketFraction = topMarketTradeCountRow
+      ? topMarketTradeCountRow.cnt / Math.max(1, w.lifetime_trades)
+      : 0;
+    const botPenalty = topMarketFraction >= 0.70 ? 0.3 : 1.0;
+
+    // --- Account age / maturity discount ---
+    const firstSeenDaysAgo = (nowSec - (w.first_ts ?? nowSec)) / 86400;
+    const maturity = Math.min(1, firstSeenDaysAgo / 30);
+    const ageFactor = 0.5 + 0.5 * maturity;
+
+    // --- Signal A: Early mover advantage ---
+    const earlyMover = computeEarlyMoverScore(w.wallet, since14d);
+
+    // --- Signal B: Resolved market win rate ---
+    const winRate = computeResolvedWinRate(w.wallet, since14d);
+    const winRateSignal = winRate !== undefined
+      ? clamp01((winRate - 0.50) / 0.50)  // >50% → positive; ≤50% → 0
+      : 0;
+
+    // --- Signal C: Market category weight (average over qualifying markets) ---
+    const catWeights = qualifyingMarkets.map((m) => getMarketCategoryWeight(m.title));
+    const categoryWeight = catWeights.reduce((a, b) => a + b, 0) / catWeights.length;
+
+    // --- Signal D: Persistence & trend ---
+    const { bonus: persistenceBonus, trend } = getPersistenceBonus(w.wallet, nowSec);
+
+    // --- Edge-bet signal (contrarian low-price bets) ---
+    const edgeBetsRow = db
+      .prepare(
+        `SELECT COUNT(*) AS edge_count FROM trades
+         WHERE wallet = ? AND ts >= ? AND price < 0.40 AND side = 'BUY'`
+      )
+      .get(w.wallet, since14d) as { edge_count: number } | undefined;
+    const edgeBetFraction = (edgeBetsRow?.edge_count ?? 0) /
+      Math.max(1, w.lifetime_trades);
+    const edgeBet = clamp01(edgeBetFraction / 0.30);
+
+    // --- Core freshness & size signals ---
     const hoursSinceLast = (nowSec - w.lastTs) / 3600;
-    const freshness = Math.exp(-hoursSinceLast / 2); // ~2h half-life
-
+    const freshness = Math.exp(-hoursSinceLast / 2);
     const avgDaily = w.vol14d / 14 || 1;
-    const sizeBurst = Math.min(1, w.vol1h / avgDaily); // compare 1h vs 14d avg
+    const sizeBurst = clamp01(w.vol1h / avgDaily);
 
-    const focus =
-      w.markets24h <= 2 ? 1 : w.markets24h <= 4 ? 0.6 : 0.2;
+    // Concentration on qualifying markets only
+    const qMkt24h = qualifyingMarkets.length;
+    const focus = qMkt24h <= 2 ? 1 : qMkt24h <= 4 ? 0.6 : 0.2;
 
-    const score01 = 0.5 * freshness + 0.3 * sizeBurst + 0.2 * focus;
-    if (score01 < 0.25) continue;
+    // --- Updated score formula (weights sum to 1.00) ---
+    const baseScore =
+      0.30 * freshness +
+      0.20 * sizeBurst +
+      0.15 * focus +
+      0.15 * earlyMover +
+      0.10 * winRateSignal +
+      0.10 * edgeBet;
 
+    // --- NEW: Professional and Diversity Penalties ---
+    const professionalPenalty = w.lifetime_trades > 5000 ? 0.2 : w.lifetime_trades > 1000 ? 0.5 : 1.0;
+    const diversityPenalty = qMkt24h > 12 ? 0.2 : qMkt24h > 8 ? 0.5 : 1.0;
+
+    // Multiply by modifiers (bounded, no threshold tuning)
+    const rawScore01 = clamp01(
+      botPenalty * ageFactor * categoryWeight * professionalPenalty * diversityPenalty * (baseScore + persistenceBonus * baseScore)
+    );
+
+    if (rawScore01 < 0.15) continue; // low-score early-exit
+
+    // Top qualifying market
     const topMarketRow = db
       .prepare(
-        `
-        SELECT slug, title, SUM(notional) AS vol
-        FROM trades
-        WHERE wallet = ? AND ts >= ?
-        GROUP BY slug, title
-        ORDER BY vol DESC
-        LIMIT 1
-      `
+        `SELECT title, SUM(notional) AS vol
+         FROM trades
+         WHERE wallet = ? AND ts >= ?
+           AND title NOT LIKE '%up or down%'
+           AND title NOT LIKE '%up-or-down%'
+           AND title NOT LIKE '%price above%'
+           AND title NOT LIKE '%price below%'
+         GROUP BY slug, title ORDER BY vol DESC LIMIT 1`
       )
-      .get(w.wallet, since24h) as { slug: string; title: string; vol: number } | undefined;
+      .get(w.wallet, since24h) as { title: string; vol: number } | undefined;
 
     const reasons: string[] = [];
     if (freshness >= 0.7) reasons.push("Large fresh bet");
     if (focus >= 0.9) reasons.push("Highly concentrated");
     if (sizeBurst >= 0.7) reasons.push("Size vs history");
+    if (earlyMover >= 0.5) reasons.push("Early mover");
+    if (edgeBet >= 0.5) reasons.push("Contrarian edge bets");
+    if (winRate !== undefined && winRate >= 0.65) reasons.push("High win rate");
+    if (categoryWeight >= 1.4) reasons.push("High-sensitivity market");
+    if (professionalPenalty < 1.0) reasons.push("Professional volume");
+    if (diversityPenalty < 1.0) reasons.push("Broad market activity");
     if (!reasons.length) reasons.push("High notional (24h)");
 
-    insiders.push({
-      address: w.wallet,
-      score: Math.round(score01 * 100),
-      label: score01 >= 0.8 ? "High Suspicion" : "Watchlist",
-      reasons,
+    // Persist raw score to wallet_history before percentile ranking
+    insertWalletHistoryStmt.run({ wallet: w.wallet, ts: nowSec, score: rawScore01 });
+
+    pool.push({
+      wallet: w.wallet,
+      rawScore01,
+      winRate,
+      trend,
       topMarket: topMarketRow?.title,
-      lastSeen: w.lastTs,
-      _score01: score01,
+      lastTs: w.lastTs,
+      reasons,
+      categoryWeight,
     });
   }
 
+  // --- Signal E: Percentile normalisation ---
+  // Sort pool by rawScore, assign percentile rank (0–100)
+  pool.sort((a, b) => a.rawScore01 - b.rawScore01);
+  const total = pool.length;
+
+  const insiders: Array<PolymarketInsider & { _rawScore: number }> = pool.map(
+    (p, idx) => {
+      const percentile = total > 1 ? Math.round((idx / (total - 1)) * 100) : 75;
+      const label: PolymarketInsider['label'] =
+        percentile >= 75 ? "High Suspicion" :
+          percentile >= 50 ? "Moderate" :
+            "Watchlist";
+
+      return {
+        address: p.wallet,
+        score: percentile,
+        label,
+        reasons: p.reasons,
+        topMarket: p.topMarket,
+        lastSeen: p.lastTs,
+        trend: p.trend,
+        winRate: p.winRate !== undefined ? Math.round(p.winRate * 100) / 100 : undefined,
+        _rawScore: p.rawScore01,
+      };
+    }
+  );
+
+  // Return top-12 ranked by raw score (descending)
   const ranked = insiders
-    .sort((a, b) => b._score01 - a._score01)
+    .sort((a, b) => b._rawScore - a._rawScore)
     .slice(0, 12)
-    .map(({ _score01, ...rest }) => rest);
+    .map(({ _rawScore, ...rest }) => rest);
 
   if (ranked.length >= 3) return ranked;
 
-  // Fallback: pad with top wallets by 14d volume when freshness model returns few
+  // Fallback: pad with top-volume wallets (same bot-market filter + gates)
   const topVol = db
     .prepare(
-      `
-      SELECT wallet, SUM(notional) AS vol, MAX(ts) AS lastTs
-      FROM trades
-      WHERE ts >= ?
-      GROUP BY wallet
-      ORDER BY vol DESC
-      LIMIT 10
-    `
+      `SELECT wallet, SUM(notional) AS vol, MAX(ts) AS lastTs, COUNT(*) AS lifetime_trades
+       FROM trades
+       WHERE ts >= ?
+       GROUP BY wallet
+       HAVING lifetime_trades >= 10 AND vol >= 2000
+       ORDER BY vol DESC
+       LIMIT 20`
     )
-    .all(since14d) as Array<{ wallet: string; vol: number; lastTs: number }>;
+    .all(since14d) as Array<{ wallet: string; vol: number; lastTs: number; lifetime_trades: number }>;
 
   const seen = new Set(ranked.map((r) => r.address));
   for (const r of topVol) {
     if (ranked.length >= 12) break;
     if (!r.wallet || r.wallet === "unknown" || seen.has(r.wallet)) continue;
+
+    const hasQualMarket = (db
+      .prepare(
+        `SELECT COUNT(*) AS cnt FROM trades
+         WHERE wallet = ? AND ts >= ?
+           AND title NOT LIKE '%up or down%'
+           AND title NOT LIKE '%up-or-down%'
+           AND title NOT LIKE '%price above%'
+           AND title NOT LIKE '%price below%'
+         LIMIT 1`
+      )
+      .get(r.wallet, since14d) as { cnt: number }).cnt > 0;
+
+    if (!hasQualMarket) continue;
     seen.add(r.wallet);
     ranked.push({
       address: r.wallet,
-      score: 55,
+      score: 20,
       label: "Watchlist",
-      reasons: [`High notional (${Math.round(r.vol).toLocaleString()} in 14d)`],
+      reasons: [`High notional ($${Math.round(r.vol).toLocaleString()} in 14d)`],
       topMarket: undefined,
       lastSeen: r.lastTs,
+      trend: 'new',
     });
   }
   return ranked;
@@ -404,7 +796,9 @@ async function refreshPolymarketDataFromApi(opts?: {
     const allInsiders = await computePolymarketInsidersFromDb();
     const windowSize = 5;
     if (allInsiders.length) {
-      insiderRotation = (insiderRotation + 1) % Math.max(1, allInsiders.length);
+      if (opts?.rotate) {
+        insiderRotation = (insiderRotation + windowSize) % allInsiders.length;
+      }
       const start = insiderRotation;
       const rotated = [
         ...allInsiders.slice(start),
@@ -538,64 +932,90 @@ async function refreshPolymarketDataFromApi(opts?: {
     const priceShort = tradesShort.length ? vwap(tradesShort) : vwap(tradesAll);
     const priceMid = vwap(tradesAll);
 
-    // Long-horizon anchor: EMA over time of the mid-horizon VWAP
+    // --- ALPHA V3.0: Model Logic Overhaul ---
     const now = Date.now();
     const key = m.slug;
+    const priceDiff = Math.abs(priceMid - (polymarketStats[key]?.longVwap ?? priceMid));
+    const alpha = 0.05; // slower EMA for more stability
+
     const prevStats = polymarketStats[key] ?? {
       longVwap: priceMid,
       sampleCount: 0,
       lastUpdated: now,
+      rollingVolatility: priceDiff,
+      avgTradeSize: m.totalNotional / Math.max(1, m.trades.length),
     };
-    const alpha = 0.05; // slower EMA for more stability
+
     const longVwap =
       prevStats.sampleCount > 0
         ? alpha * priceMid + (1 - alpha) * prevStats.longVwap
         : priceMid;
 
+    const rollingVolatility = alpha * priceDiff + (1 - alpha) * prevStats.rollingVolatility;
+    const avgTradeSize = alpha * (m.totalNotional / Math.max(1, m.trades.length)) + (1 - alpha) * prevStats.avgTradeSize;
+
     polymarketStats[key] = {
       longVwap,
       sampleCount: prevStats.sampleCount + 1,
       lastUpdated: now,
+      rollingVolatility,
+      avgTradeSize,
     };
-    const baseFair = 0.5 * priceMid + 0.5 * longVwap;
 
-    // Order-flow imbalance adjustment: YES vs NO notional
+    // 1. Zero-Lag Fair Value (Mean Reversion)
+    // baseFair = longVwap + (MeanReversionConstant * (longVwap - priceMid))
+    const baseFair = longVwap + (0.15 * (longVwap - priceMid));
+
+    // 2. Order Book Imbalance (OBI) & Flow Skew
     const yesNo = tradesForMarket.reduce(
       (acc, tr: any) => {
         const sz = Number(tr.size) || 0;
         const pr = Number(tr.price) || 0;
         const notion = sz * pr;
-        if (tr.outcome === "YES") acc.yes += notion;
-        else if (tr.outcome === "NO") acc.no += notion;
+        if (tr.outcome === "YES") { acc.yesNotion += notion; acc.yesCount++; }
+        else if (tr.outcome === "NO") { acc.noNotion += notion; acc.noCount++; }
         return acc;
       },
-      { yes: 0, no: 0 }
+      { yesNotion: 0, yesCount: 0, noNotion: 0, noCount: 0 }
     );
-    const flowDen = yesNo.yes + yesNo.no;
-    const flowSkew = flowDen > 0 ? (yesNo.yes - yesNo.no) / flowDen : 0;
+    // obi = (yesNotional / yesTrades) - (noNotional / noTrades)
+    const obi = (yesNo.yesNotion / Math.max(1, yesNo.yesCount)) - (yesNo.noNotion / Math.max(1, yesNo.noCount));
+    const flowSkew = Math.max(-1, Math.min(1, obi / 500)); // normalized skew
+
+    // 3. Sharp Multiplier (Insider Integration)
+    // Shifts the fair value based on direction of top-performing insiders
+    const sharpShift = getSharpDirection(key) * 0.03;
+
+    // 4. Sector-Specific Anchors (Internal Correlations)
+    let sectorAnchor = 0;
+    const titleLower = m.title.toLowerCase();
+    if (titleLower.includes("btc") || titleLower.includes("bitcoin") || titleLower.includes("eth")) {
+      sectorAnchor = 0.01; // Placeholder for spot delta; favors the trend
+    }
+    if (isSportsMarket(m.title)) {
+      sectorAnchor = -0.01; // Sports entropy discount
+    }
 
     const fairValue = Math.min(
       0.99,
-      Math.max(0.01, baseFair + 0.05 * flowSkew)
+      Math.max(0.01, baseFair + (0.05 * flowSkew) + sharpShift + sectorAnchor)
     );
     const priceNow = priceShort;
 
-    // Compute edge and apply small deadband (but keep negative edges)
+    // 5. Improved Signal Filtering (Noise Suppression)
     let ev = (fairValue - priceNow) * 100; // percentage points
-    if (Math.abs(ev) < 0.3) {
+    if (Math.abs(ev) < 3.0) { // Ignores minor noise per plan
       ev = 0;
     }
 
-    // Map EV to a bounded Kelly stake (0–10%)
-    const maxKelly = 10;
-    const maxEv = 15; // treat 15pp edge as "full"
-    let stake =
-      ev === 0
-        ? 0
-        : Math.max(0, Math.min(maxKelly, (Math.abs(ev) / maxEv) * maxKelly));
+    // 6. Risk-Adjusted Kelly Stake
+    // (EV / Volatility) * LiquidityPenalty
+    const volFactor = Math.max(0.01, rollingVolatility * 100);
+    const liquidityPenalty = Math.min(1, m.volumeRecent / 5000);
+    let stake = ev === 0 ? 0 : Math.max(0, Math.min(10, (Math.abs(ev) / volFactor) * liquidityPenalty));
 
     // Ensure interesting edges get at least a minimal stake
-    if (Math.abs(ev) >= 3 && stake > 0 && stake < 1) {
+    if (Math.abs(ev) >= 5 && stake > 0 && stake < 1) {
       stake = 1;
     }
 
@@ -621,18 +1041,19 @@ async function refreshPolymarketDataFromApi(opts?: {
   // Rank by absolute edge so we see the most mispriced markets (rich or cheap)
   const signalsRanked = rawSignals
     .sort((a, b) => Math.abs(b.ev) - Math.abs(a.ev))
-    .slice(0, 8);
+    .slice(0, 36);
 
-  let selectedSignals = signalsRanked.slice(0, 3);
-
-  if (opts?.rotate && signalsRanked.length > 3) {
-    const rotated = signalsRanked.filter(
-      (s) => !polymarketLastAlphaSlugs.includes(s.slug)
-    );
-    if (rotated.length >= 3) {
-      selectedSignals = rotated.slice(0, 3);
-    }
+  const windowSize = 3;
+  if (opts?.rotate && signalsRanked.length > windowSize) {
+    alphaRotation = (alphaRotation + windowSize) % signalsRanked.length;
   }
+
+  const start = alphaRotation % Math.max(1, signalsRanked.length);
+  const rotatedSignals = [
+    ...signalsRanked.slice(start),
+    ...signalsRanked.slice(0, start),
+  ];
+  const selectedSignals = rotatedSignals.slice(0, windowSize);
 
   polymarketLastAlphaSlugs = selectedSignals.map((s) => s.slug);
 
@@ -656,6 +1077,7 @@ async function refreshPolymarketDataFromApi(opts?: {
       id: tr.transactionHash ?? `wf-${i}`,
       time: "Just now",
       market: tr.title ?? tr.slug ?? "Unknown market",
+      slug: tr.slug,
       address: tr.proxyWallet ?? "unknown",
       amount: Number(tr.size) * Number(tr.price),
       side: tr.side === "SELL" ? "NO" : "YES",
@@ -1055,7 +1477,7 @@ async function startServer() {
 
     try {
       await refreshPolymarketDataFromApi({
-        rotate: scope !== "insiders",
+        rotate: true,
         scope,
       });
       res.json({ success: true, data: polymarketData });

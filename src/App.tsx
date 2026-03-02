@@ -39,7 +39,7 @@ export default function App() {
     // WebSocket setup
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
     const socket = new WebSocket(`${protocol}//${window.location.host}`);
-    
+
     socket.onmessage = (event) => {
       const message = JSON.parse(event.data);
       if (message.type === 'PRICE_UPDATE') {
@@ -55,7 +55,7 @@ export default function App() {
   }, []);
 
   const toggleAsset = (id: string) => {
-    setSelectedAssets(prev => 
+    setSelectedAssets(prev =>
       prev.includes(id) ? prev.filter(a => a !== id) : [...prev, id]
     );
   };
@@ -63,8 +63,8 @@ export default function App() {
   return (
     <div className="flex min-h-screen">
       <Sidebar activeTab={activeTab} setActiveTab={setActiveTab} />
-      
-      <main className="flex-1 p-8 overflow-y-auto">
+
+      <main className="flex-1 px-4 lg:px-10 py-8 overflow-y-auto">
         <AnimatePresence mode="wait">
           <motion.div
             key={activeTab}
@@ -76,10 +76,10 @@ export default function App() {
           >
             {activeTab === 'dashboard' && <DashboardOverview assets={assets} />}
             {activeTab === 'portfolio' && (
-              <AssetSelection 
-                assets={assets} 
-                selectedAssets={selectedAssets} 
-                toggleAsset={toggleAsset} 
+              <AssetSelection
+                assets={assets}
+                selectedAssets={selectedAssets}
+                toggleAsset={toggleAsset}
               />
             )}
             {activeTab === 'risk' && <RiskAnalysis riskData={riskData} />}
