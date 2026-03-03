@@ -10,6 +10,7 @@ import { Backtesting } from './components/Backtesting';
 import { IndicesSearch } from './components/IndicesSearch';
 import { VeoAnimation } from './components/VeoAnimation';
 import { Polymarket } from './components/Polymarket';
+import { AlphaBacktest } from './components/AlphaBacktest';
 
 export default function App() {
   const [activeTab, setActiveTab] = useState('dashboard');
@@ -74,7 +75,12 @@ export default function App() {
             transition={{ duration: 0.3 }}
             className="h-full"
           >
-            {activeTab === 'dashboard' && <DashboardOverview assets={assets} />}
+            {activeTab === 'dashboard' && (
+              <DashboardOverview
+                assets={assets}
+                onNavigateAlphaBacktest={() => setActiveTab('alphaBacktest')}
+              />
+            )}
             {activeTab === 'portfolio' && (
               <AssetSelection
                 assets={assets}
@@ -85,6 +91,7 @@ export default function App() {
             {activeTab === 'risk' && <RiskAnalysis riskData={riskData} />}
             {activeTab === 'frontier' && <EfficientFrontier data={frontierData} />}
             {activeTab === 'backtest' && <Backtesting data={backtestData} />}
+            {activeTab === 'alphaBacktest' && <AlphaBacktest />}
             {activeTab === 'indices' && <IndicesSearch indices={indices} />}
             {activeTab === 'polymarket' && <Polymarket />}
             {activeTab === 'veo' && <VeoAnimation />}

@@ -7,7 +7,8 @@ import {
   Loader2,
   CheckCircle2,
   ChevronRight,
-  PieChart as PieChartIcon
+  PieChart as PieChartIcon,
+  Activity
 } from 'lucide-react';
 import { 
   LineChart, 
@@ -29,9 +30,10 @@ import { cn } from '../lib/utils';
 
 interface DashboardOverviewProps {
   assets: Asset[];
+  onNavigateAlphaBacktest?: () => void;
 }
 
-export const DashboardOverview: React.FC<DashboardOverviewProps> = ({ assets }) => {
+export const DashboardOverview: React.FC<DashboardOverviewProps> = ({ assets, onNavigateAlphaBacktest }) => {
   const [isOptimizing, setIsOptimizing] = useState(false);
   const [optimizationResult, setOptimizationResult] = useState<any>(null);
   const [engineMode, setEngineMode] = useState<'manual' | 'auto'>('manual');
@@ -167,6 +169,37 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({ assets }) 
             <p className="text-2xl font-black text-slate-900 font-display">{stat.value}</p>
           </motion.div>
         ))}
+      </div>
+
+      {/* Alpha Backtest teaser card */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+        <div className="lg:col-span-1 bg-white rounded-3xl border border-slate-100 p-6 shadow-sm flex flex-col justify-between">
+          <div className="flex items-center gap-3 mb-4">
+            <div className="p-2 bg-ares-green/10 rounded-xl">
+              <Activity className="w-5 h-5 text-ares-green" />
+            </div>
+            <div>
+              <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">
+                Polymarket Model
+              </p>
+              <h3 className="text-lg font-bold text-slate-900 font-display">
+                Alpha Backtesting Engine
+              </h3>
+            </div>
+          </div>
+          <p className="text-sm text-slate-500 mb-4">
+            See how the insider-informed Polymarket alpha model would have performed historically —
+            equity curve, calibration, and virtual PnL on a $10k account.
+          </p>
+          <button
+            type="button"
+            onClick={onNavigateAlphaBacktest}
+            className="inline-flex items-center justify-between w-full px-4 py-3 rounded-2xl bg-slate-900 text-white text-xs font-black uppercase tracking-widest hover:bg-slate-800 transition"
+          >
+            Open Alpha Backtest
+            <ChevronRight className="w-4 h-4" />
+          </button>
+        </div>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">

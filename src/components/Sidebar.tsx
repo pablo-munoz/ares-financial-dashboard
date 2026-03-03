@@ -7,7 +7,8 @@ import {
   Video,
   History,
   Search,
-  Zap
+  Zap,
+  Activity
 } from 'lucide-react';
 import { cn } from '../lib/utils';
 
@@ -31,6 +32,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab }) => 
         { id: 'risk', icon: ShieldAlert, label: 'Risk Analysis' },
         { id: 'frontier', icon: TrendingUp, label: 'Efficient Frontier' },
         { id: 'backtest', icon: History, label: 'Backtesting' },
+        { id: 'alphaBacktest', icon: Activity, label: 'Alpha Backtest' },
         { id: 'indices', icon: Search, label: 'Indices Search' },
         { id: 'polymarket', icon: Zap, label: 'Polymarket Alpha' },
         { id: 'veo', icon: Video, label: 'AI Video (Veo)' },

@@ -7,6 +7,7 @@ import fs from "fs";
 import { fileURLToPath } from "url";
 import dotenv from "dotenv";
 import Database from "better-sqlite3";
+import { runBacktest } from "./backtester.js";
 
 dotenv.config();
 
@@ -261,10 +262,10 @@ async function fetchGammaMarketMetaBySlug(slug: string): Promise<MarketMeta | nu
   }
 }
 
-async function syncClosedMarkets() {
+export async function syncClosedMarkets() {
   console.log("[Sync] Fetching recently closed markets...");
   try {
-    const res = await fetch(`${POLYMARKET_BASE_URL}/markets?active=false&limit=100`, {
+    const res = await fetch(`${POLYMARKET_BASE_URL}/markets?active=false&limit=500`, {
       headers: { Accept: "application/json" },
     });
     if (!res.ok) throw new Error(`Gamma API HTTP ${res.status}`);
@@ -276,8 +277,12 @@ async function syncClosedMarkets() {
 
     const insertMany = db.transaction((rows: any[]) => {
       for (const m of rows) {
+        let outcome = m.winningOutcome;
+        if (outcome === "0") outcome = "YES";
+        else if (outcome === "1") outcome = "NO";
+
         const resolvedAt = m.closedTime ? Math.floor(Date.parse(m.closedTime) / 1000) : Math.floor(Date.now() / 1000);
-        insertResolutionStmt.run(m.slug, m.winningOutcome, resolvedAt);
+        insertResolutionStmt.run(m.slug, outcome, resolvedAt);
       }
     });
 
@@ -1398,6 +1403,65 @@ async function startServer() {
     });
   });
 
+  app.get("/api/backtest/results", async (req, res) => {
+    try {
+      const results = await runBacktest();
+      res.json(results);
+    } catch (err) {
+      console.error("Backtest failed:", err);
+      res.status(500).json({ error: "Backtest failed" });
+    }
+  });
+
+  app.get("/api/backtest/trades", (req, res) => {
+    const slugRaw = req.query.slug;
+    const slug = typeof slugRaw === "string" ? slugRaw.trim() : "";
+    if (!slug) {
+      res.status(400).json({ error: "Query parameter 'slug' is required" });
+      return;
+    }
+
+    try {
+      const rows = db
+        .prepare(
+          `SELECT ts, price, size, notional, outcome, side, wallet, title
+           FROM trades
+           WHERE slug = ?
+           ORDER BY ts ASC
+           LIMIT 500`
+        )
+        .all(slug) as Array<{
+          ts: number;
+          price: number;
+          size: number;
+          notional: number;
+          outcome: string | null;
+          side: string | null;
+          wallet: string | null;
+          title: string | null;
+        }>;
+
+      res.json({
+        slug,
+        trades: rows,
+      });
+    } catch (err) {
+      console.error("Failed to load backtest trades:", err);
+      res.status(500).json({ error: "Failed to load trades" });
+    }
+  });
+
+  app.get("/api/sync/force", async (req, res) => {
+    try {
+      console.log("[API] Forced sync triggered...");
+      await syncClosedMarkets();
+      res.json({ success: true, message: "Sync completed" });
+    } catch (err) {
+      console.error("Forced sync failed:", err);
+      res.status(500).json({ error: "Sync failed" });
+    }
+  });
+
   app.post("/api/portfolio/recommend", (req, res) => {
     const {
       investment,
@@ -1580,6 +1644,16 @@ async function startServer() {
       console.warn("Background Polymarket API refresh failed, using snapshot:", err)
     );
   }, 30_000);
+
+  // Sync closed markets every hour
+  setInterval(() => {
+    syncClosedMarkets().catch((err) =>
+      console.error("Background syncClosedMarkets failed:", err)
+    );
+  }, 3600_000);
+
+  // Sync once on startup
+  syncClosedMarkets().catch(console.error);
 
   // Vite middleware for development
   if (process.env.NODE_ENV !== "production") {
