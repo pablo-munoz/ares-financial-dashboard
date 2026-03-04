@@ -186,9 +186,15 @@ export const Polymarket: React.FC = () => {
                 <span className="px-3 py-1 bg-emerald-50 text-emerald-600 text-[10px] font-black rounded-full uppercase tracking-widest">
                   EV+ {signal.ev}%
                 </span>
-                <div className="p-2 bg-slate-50 rounded-xl group-hover:bg-ares-green/10 transition-colors">
+                <a
+                  href={`https://polymarket.com/event/${signal.eventSlug ?? signal.id}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="p-2 bg-slate-50 rounded-xl group-hover:bg-ares-green/10 transition-colors"
+                  onClick={(e) => e.stopPropagation()}
+                >
                   <ArrowUpRight className="w-4 h-4 text-slate-400 group-hover:text-ares-green" />
-                </div>
+                </a>
               </div>
 
               <h3 className="font-bold text-slate-900 mb-4 line-clamp-2 min-h-[3rem]">{signal.marketName}</h3>
@@ -459,6 +465,15 @@ export const Polymarket: React.FC = () => {
                   <div className="p-6 bg-slate-50 rounded-3xl border border-slate-100">
                     <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Selected Market</p>
                     <h3 className="font-bold text-slate-900">{selectedMarket.marketName}</h3>
+                    <a
+                      href={`https://polymarket.com/event/${selectedMarket.eventSlug ?? selectedMarket.id}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="mt-3 flex items-center gap-1.5 text-[10px] font-black uppercase tracking-widest text-ares-green hover:underline"
+                    >
+                      <ExternalLink className="w-3 h-3" />
+                      View on Polymarket
+                    </a>
                   </div>
 
                   <div className="grid grid-cols-2 gap-4">

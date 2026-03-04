@@ -53,6 +53,7 @@ export interface PriceUpdate {
 
 export interface PolymarketAlphaSignal {
   id: string;
+  eventSlug?: string;
   marketName: string;
   fairValue: number;    // 0–1 probability
   marketPrice: number;  // 0–1 market price
