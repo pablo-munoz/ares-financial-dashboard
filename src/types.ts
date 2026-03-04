@@ -14,15 +14,19 @@ export interface IndexData {
   region: string;
 }
 
+export interface StressTest {
+  id: string;
+  scenario: string;
+  impact: number;
+  estLoss: number;
+  description: string;
+}
+
 export interface RiskData {
   correlationMatrix: any[];
   riskContribution: { name: string; value: number; color: string }[];
-  stressTest: {
-    scenario: string;
-    impact: number;
-    estLoss: number;
-    description: string;
-  };
+  stressTests: StressTest[];
+  insights: string[];
 }
 
 export interface FrontierData {

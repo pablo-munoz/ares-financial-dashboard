@@ -20,6 +20,8 @@ export default function App() {
   const [indices, setIndices] = useState<IndexData[]>([]);
   const [frontierData, setFrontierData] = useState<FrontierData | null>(null);
   const [backtestData, setBacktestData] = useState<BacktestData | null>(null);
+  const [vix, setVix] = useState<number>(15.0);
+  const [optimizationResult, setOptimizationResult] = useState<any>(null);
 
   useEffect(() => {
     // Initial data fetch
@@ -32,7 +34,6 @@ export default function App() {
           setAssets(payload.data);
         }
       });
-    fetch('/api/risk-data').then(res => res.json()).then(setRiskData);
     fetch('/api/indices').then(res => res.json()).then(setIndices);
     fetch('/api/efficient-frontier').then(res => res.json()).then(setFrontierData);
     fetch('/api/backtest').then(res => res.json()).then(setBacktestData);
@@ -49,11 +50,34 @@ export default function App() {
           const update = updates.find(u => u.id === asset.id);
           return update ? { ...asset, price: update.price, change: update.change } : asset;
         }));
+        if (typeof message.vix === 'number') {
+          setVix(message.vix);
+        }
       }
     };
 
     return () => socket.close();
   }, []);
+
+  useEffect(() => {
+    // Dynamic Risk Data fetch based on portfolio
+    let body = {};
+    if (optimizationResult?.optimization?.weights) {
+      body = {
+        weights: optimizationResult.optimization.weights,
+        investment: optimizationResult.metadata?.totalInvestment || 100000
+      };
+    }
+
+    fetch('/api/risk-data', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body)
+    })
+      .then(res => res.json())
+      .then(setRiskData)
+      .catch(console.error);
+  }, [optimizationResult]);
 
   const toggleAsset = (id: string) => {
     setSelectedAssets(prev =>
@@ -78,7 +102,11 @@ export default function App() {
             {activeTab === 'dashboard' && (
               <DashboardOverview
                 assets={assets}
+                vix={vix}
+                optimizationResult={optimizationResult}
+                setOptimizationResult={setOptimizationResult}
                 onNavigateAlphaBacktest={() => setActiveTab('alphaBacktest')}
+                onNavigateRiskAnalysis={() => setActiveTab('risk')}
               />
             )}
             {activeTab === 'portfolio' && (

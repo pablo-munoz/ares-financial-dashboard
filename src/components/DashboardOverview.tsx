@@ -1,8 +1,8 @@
 import React, { useState } from 'react';
-import { 
-  TrendingUp, 
-  DollarSign, 
-  Percent, 
+import {
+  TrendingUp,
+  DollarSign,
+  Percent,
   Calculator,
   Loader2,
   CheckCircle2,
@@ -10,13 +10,13 @@ import {
   PieChart as PieChartIcon,
   Activity
 } from 'lucide-react';
-import { 
-  LineChart, 
-  Line, 
-  XAxis, 
-  YAxis, 
-  CartesianGrid, 
-  Tooltip, 
+import {
+  LineChart,
+  Line,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
   ResponsiveContainer,
   AreaChart,
   Area,
@@ -30,12 +30,22 @@ import { cn } from '../lib/utils';
 
 interface DashboardOverviewProps {
   assets: Asset[];
+  vix?: number;
+  optimizationResult?: any;
+  setOptimizationResult?: (res: any) => void;
   onNavigateAlphaBacktest?: () => void;
+  onNavigateRiskAnalysis?: () => void;
 }
 
-export const DashboardOverview: React.FC<DashboardOverviewProps> = ({ assets, onNavigateAlphaBacktest }) => {
+export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
+  assets,
+  vix = 15.0,
+  optimizationResult,
+  setOptimizationResult,
+  onNavigateAlphaBacktest,
+  onNavigateRiskAnalysis
+}) => {
   const [isOptimizing, setIsOptimizing] = useState(false);
-  const [optimizationResult, setOptimizationResult] = useState<any>(null);
   const [engineMode, setEngineMode] = useState<'manual' | 'auto'>('manual');
   const [formData, setFormData] = useState({
     tickers: ['AAPL', 'MSFT', 'GOOGL', 'AMZN'],
@@ -59,12 +69,12 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({ assets, on
         engineMode === 'manual'
           ? formData
           : {
-              investment: formData.investment,
-              risk_tolerance: formData.risk_tolerance,
-              time_horizon_years: formData.time_horizon_years,
-              monthly_contribution: formData.monthly_contribution,
-              num_holdings: formData.num_holdings,
-            };
+            investment: formData.investment,
+            risk_tolerance: formData.risk_tolerance,
+            time_horizon_years: formData.time_horizon_years,
+            monthly_contribution: formData.monthly_contribution,
+            num_holdings: formData.num_holdings,
+          };
 
       const response = await fetch(endpoint, {
         method: 'POST',
@@ -72,7 +82,7 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({ assets, on
         body: JSON.stringify(body),
       });
       const result = await response.json();
-      if (result.success) {
+      if (result.success && setOptimizationResult) {
         setOptimizationResult(result.data);
       }
     } catch (error) {
@@ -84,48 +94,102 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({ assets, on
 
   const COLORS = ['#36e27b', '#818cf8', '#60a5fa', '#fbbf24', '#f87171'];
 
+  const activeInvestment = optimizationResult?.metadata?.totalInvestment || formData.investment;
+
   const allocationDetails = optimizationResult
     ? (() => {
-        const weightsEntries = Object.entries(
-          optimizationResult.optimization.weights || {}
-        ) as [string, number][];
+      const weightsEntries = Object.entries(
+        optimizationResult.optimization.weights || {}
+      ) as [string, number][];
 
-        const rows = weightsEntries.map(([ticker, weight]) => {
-          const asset = assets.find((a) => a.id === ticker);
-          const price = asset?.price ?? null;
-          const targetDollars = weight * formData.investment;
-          const shares = price ? Math.floor(targetDollars / price) : null;
-          const investedDollars =
-            price && shares !== null ? shares * price : null;
+      const rows = weightsEntries.map(([ticker, weight]) => {
+        const asset = assets.find((a) => a.id === ticker);
+        const price = asset?.price ?? null;
+        const targetDollars = weight * activeInvestment;
+        // Allows fractional shares up to 4 decimal points
+        const shares = price ? Number((targetDollars / price).toFixed(4)) : null;
+        const investedDollars =
+          price && shares !== null ? shares * price : null;
 
-          return {
-            ticker,
-            name: asset?.name ?? ticker,
-            weight,
-            price,
-            targetDollars,
-            shares,
-            investedDollars,
-          };
-        });
+        return {
+          ticker,
+          name: asset?.name ?? ticker,
+          weight,
+          price,
+          targetDollars,
+          shares,
+          investedDollars,
+        };
+      });
 
-        const totalInvested = rows.reduce(
-          (sum, r) => sum + (r.investedDollars ?? 0),
-          0
-        );
-        const leftoverCash = formData.investment - totalInvested;
+      const totalInvested = rows.reduce(
+        (sum, r) => sum + (r.investedDollars ?? 0),
+        0
+      );
+      const leftoverCash = activeInvestment - totalInvested;
 
-        return { rows, totalInvested, leftoverCash };
-      })()
+      return { rows, totalInvested, leftoverCash };
+    })()
     : null;
 
   const formatCurrency = (value: number | null | undefined) =>
     value != null
       ? `$${value.toLocaleString(undefined, {
-          maximumFractionDigits: 2,
-          minimumFractionDigits: 2,
-        })}`
+        maximumFractionDigits: 2,
+        minimumFractionDigits: 2,
+      })}`
       : '—';
+
+  const defaultInvestment = 100000;
+
+  // Total Portfolio Value
+  const totalValue = allocationDetails
+    ? allocationDetails.totalInvested + allocationDetails.leftoverCash
+    : defaultInvestment;
+
+  // Daily P&L (absolute) based on weighted average change of assets in portfolio
+  let pnlChangePct = 0;
+  if (allocationDetails && allocationDetails.rows.length > 0) {
+    pnlChangePct = allocationDetails.rows.reduce((sum, r) => sum + (r.weight * ((assets.find(a => a.id === r.ticker)?.change || 0) / 100)), 0);
+  } else if (assets.length > 0) {
+    // Top 5 assets equal weight fallback
+    const top5 = assets.slice(0, 5);
+    pnlChangePct = top5.reduce((sum, a) => sum + (a.change / 100), 0) / top5.length;
+  }
+
+  const dailyPnlDollars = totalValue * pnlChangePct;
+
+  const volatility = vix;
+  const riskScore = Math.max(0, Math.min(100, Math.round(100 - (volatility * 2.5))));
+
+  const formatCurrencyFull = (value: number) => `$${value.toLocaleString(undefined, { maximumFractionDigits: 0 })}`;
+
+  const stats = [
+    {
+      label: 'Total Portfolio Value',
+      value: formatCurrencyFull(totalValue),
+      change: `${pnlChangePct >= 0 ? '+' : ''}${(pnlChangePct * 100).toFixed(2)}%`,
+      icon: DollarSign, color: 'bg-ares-green'
+    },
+    {
+      label: 'Daily P&L',
+      value: `${dailyPnlDollars >= 0 ? '+' : ''}${formatCurrencyFull(Math.abs(dailyPnlDollars))}`,
+      change: 'Today',
+      icon: TrendingUp, color: 'bg-indigo-500'
+    },
+    {
+      label: 'Market Volatility',
+      value: `${volatility.toFixed(1)}%`,
+      change: 'VIX',
+      icon: Percent, color: 'bg-amber-500'
+    },
+    {
+      label: 'Risk Score',
+      value: `${riskScore}/100`,
+      change: riskScore > 75 ? 'Low Risk' : riskScore > 40 ? 'Moderate' : 'High Risk',
+      icon: CheckCircle2, color: 'bg-cyan-500'
+    },
+  ];
 
   return (
     <div className="space-y-8 animate-in fade-in duration-700">
@@ -141,13 +205,8 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({ assets, on
       </header>
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-        {[
-          { label: 'Total Portfolio Value', value: '$1,248,500', change: '+12.5%', icon: DollarSign, color: 'bg-ares-green' },
-          { label: 'Daily P&L', value: '+$14,230', change: '+1.2%', icon: TrendingUp, color: 'bg-indigo-500' },
-          { label: 'Market Volatility', value: '14.2%', change: '-0.8%', icon: Percent, color: 'bg-amber-500' },
-          { label: 'Risk Score', value: '68/100', change: 'Stable', icon: CheckCircle2, color: 'bg-cyan-500' },
-        ].map((stat, i) => (
-          <motion.div 
+        {stats.map((stat, i) => (
+          <motion.div
             key={stat.label}
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
@@ -266,19 +325,19 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({ assets, on
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
                 <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Investment ($)</label>
-                <input 
-                  type="number" 
+                <input
+                  type="number"
                   value={formData.investment}
-                  onChange={(e) => setFormData({...formData, investment: parseInt(e.target.value)})}
+                  onChange={(e) => setFormData({ ...formData, investment: parseInt(e.target.value) })}
                   className="w-full px-4 py-3 rounded-xl border border-slate-100 bg-slate-50 focus:ring-2 focus:ring-ares-green outline-none text-sm font-bold"
                 />
               </div>
               <div className="space-y-2">
                 <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Monthly ($)</label>
-                <input 
-                  type="number" 
+                <input
+                  type="number"
                   value={formData.monthly_contribution}
-                  onChange={(e) => setFormData({...formData, monthly_contribution: parseInt(e.target.value)})}
+                  onChange={(e) => setFormData({ ...formData, monthly_contribution: parseInt(e.target.value) })}
                   className="w-full px-4 py-3 rounded-xl border border-slate-100 bg-slate-50 focus:ring-2 focus:ring-ares-green outline-none text-sm font-bold"
                 />
               </div>
@@ -310,13 +369,13 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({ assets, on
                 <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Risk Tolerance</label>
                 <span className="text-[10px] font-black text-ares-green uppercase">{Math.round(formData.risk_tolerance * 100)}%</span>
               </div>
-              <input 
-                type="range" 
-                min="0" 
-                max="1" 
+              <input
+                type="range"
+                min="0"
+                max="1"
                 step="0.1"
                 value={formData.risk_tolerance}
-                onChange={(e) => setFormData({...formData, risk_tolerance: parseFloat(e.target.value)})}
+                onChange={(e) => setFormData({ ...formData, risk_tolerance: parseFloat(e.target.value) })}
                 className="w-full accent-ares-green h-1.5 bg-slate-100 rounded-lg appearance-none cursor-pointer"
               />
               <div className="flex justify-between text-[8px] font-bold text-slate-400 uppercase">
@@ -325,7 +384,7 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({ assets, on
               </div>
             </div>
 
-            <button 
+            <button
               type="submit"
               disabled={isOptimizing}
               className="w-full py-4 bg-slate-900 text-white rounded-2xl font-bold flex items-center justify-center gap-2 hover:bg-slate-800 transition-all disabled:opacity-50 shadow-xl shadow-slate-900/10"
@@ -340,7 +399,7 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({ assets, on
         <div className="lg:col-span-2 space-y-8">
           <AnimatePresence mode="wait">
             {optimizationResult ? (
-              <motion.div 
+              <motion.div
                 key="results"
                 initial={{ opacity: 0, scale: 0.95 }}
                 animate={{ opacity: 1, scale: 1 }}
@@ -379,6 +438,16 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({ assets, on
                       </div>
                     ))}
                   </div>
+
+                  {onNavigateRiskAnalysis && (
+                    <button
+                      onClick={onNavigateRiskAnalysis}
+                      className="mt-6 w-full py-3 bg-ares-green/10 text-ares-green text-sm font-bold rounded-xl flex items-center justify-center gap-2 transition-colors hover:bg-ares-green/20"
+                    >
+                      <Activity className="w-4 h-4" /> View Deep Risk Analysis
+                    </button>
+                  )}
+
                   {allocationDetails && (
                     <div className="mt-6 pt-4 border-t border-slate-100">
                       <h4 className="text-xs font-black text-slate-400 uppercase tracking-widest mb-3">
@@ -459,14 +528,14 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({ assets, on
                       <AreaChart data={optimizationResult.backtest.growth}>
                         <defs>
                           <linearGradient id="colorPort" x1="0" y1="0" x2="0" y2="1">
-                            <stop offset="5%" stopColor="#36e27b" stopOpacity={0.1}/>
-                            <stop offset="95%" stopColor="#36e27b" stopOpacity={0}/>
+                            <stop offset="5%" stopColor="#36e27b" stopOpacity={0.1} />
+                            <stop offset="95%" stopColor="#36e27b" stopOpacity={0} />
                           </linearGradient>
                         </defs>
                         <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
                         <XAxis dataKey="month" hide />
                         <YAxis hide />
-                        <Tooltip 
+                        <Tooltip
                           contentStyle={{ borderRadius: '16px', border: 'none', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)' }}
                           formatter={(value: number) => [`$${value.toLocaleString()}`, 'Value']}
                         />
@@ -478,7 +547,7 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({ assets, on
                 </div>
               </motion.div>
             ) : (
-              <motion.div 
+              <motion.div
                 key="placeholder"
                 initial={{ opacity: 0 }}
                 animate={{ opacity: 1 }}
@@ -491,14 +560,14 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({ assets, on
                       <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
                       <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{ fontSize: 10, fontWeight: 700, fill: '#94a3b8' }} />
                       <YAxis axisLine={false} tickLine={false} tick={{ fontSize: 10, fontWeight: 700, fill: '#94a3b8' }} />
-                      <Tooltip 
+                      <Tooltip
                         contentStyle={{ borderRadius: '16px', border: 'none', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)' }}
                       />
-                      <Line 
-                        type="monotone" 
-                        dataKey="price" 
-                        stroke="#36e27b" 
-                        strokeWidth={4} 
+                      <Line
+                        type="monotone"
+                        dataKey="price"
+                        stroke="#36e27b"
+                        strokeWidth={4}
                         dot={{ r: 4, fill: '#36e27b', strokeWidth: 2, stroke: '#fff' }}
                         activeDot={{ r: 6, strokeWidth: 0 }}
                       />

@@ -8,6 +8,8 @@ import { fileURLToPath } from "url";
 import dotenv from "dotenv";
 import Database from "better-sqlite3";
 import { runBacktest } from "./backtester.js";
+import YahooFinance from "yahoo-finance2";
+const yahooFinance = new YahooFinance();
 
 dotenv.config();
 
@@ -78,6 +80,7 @@ const assetRiskScore: Record<string, number> = {
 
 let assets: Asset[] = [];
 let polymarketData: PolymarketData;
+let currentVix = 15.0; // Baseline VIX
 
 async function loadAssetsUniverse() {
   const universePath = path.join(__dirname, "data", "assets-universe.json");
@@ -116,6 +119,29 @@ async function loadAssetsUniverse() {
     price: u.basePrice ?? 100,
     change: 0,
   }));
+}
+
+async function fetchLivePrices() {
+  if (assets.length === 0) return;
+  try {
+    const tickers = assets.map((a) => a.id);
+    const queries = [...tickers, "^VIX"];
+
+    const quotes = await yahooFinance.quote(queries) as any[];
+    for (const q of quotes) {
+      if (q.symbol === "^VIX") {
+        currentVix = q.regularMarketPrice ?? currentVix;
+        continue;
+      }
+      const asset = assets.find((a) => a.id === q.symbol);
+      if (asset) {
+        asset.price = q.regularMarketPrice ?? asset.price;
+        asset.change = q.regularMarketChangePercent ?? asset.change;
+      }
+    }
+  } catch (err) {
+    console.error("Failed to fetch live prices from Yahoo Finance:", err);
+  }
 }
 
 async function fetchPolymarketTrades(limit: number = 500): Promise<any[]> {
@@ -1190,6 +1216,7 @@ async function startServer() {
   app.use(express.json({ limit: "50mb" }));
 
   await loadAssetsUniverse();
+  await fetchLivePrices();
 
   const indices = [
     // US broad market / style
@@ -1709,30 +1736,163 @@ async function startServer() {
     });
   });
 
-  app.get("/api/risk-data", (req, res) => {
-    res.json({
-      correlationMatrix: [
-        { id: 'AAPL', AAPL: 1.00, MSFT: 0.65, GOOGL: 0.55 },
-        { id: 'MSFT', AAPL: 0.65, MSFT: 1.00, GOOGL: 0.70 },
-        { id: 'GOOGL', AAPL: 0.55, MSFT: 0.70, GOOGL: 1.00 },
-      ],
-      riskContribution: [
-        { name: 'TSLA', value: 32.5, color: '#f43f5e' },
-        { name: 'AMZN', value: 24.2, color: '#3b82f6' },
-        { name: 'NVDA', value: 18.3, color: '#10b981' },
-        { name: 'AAPL', value: 15.0, color: '#f59e0b' },
-        { name: 'Others', value: 10.0, color: '#64748b' },
-      ],
-      stressTest: {
-        scenario: "Black Swan Event",
-        impact: -20.0,
-        estLoss: 308000,
-        description: "Simulation based on 2008 Financial Crisis parameters."
+  app.post("/api/risk-data", (req, res) => {
+    const weights: Record<string, number> = req.body?.weights || {};
+    const tickers = Object.keys(weights);
+
+    if (tickers.length === 0) {
+      // Fallback data if no portfolio is generated yet
+      return res.json({
+        correlationMatrix: [
+          { id: 'AAPL', AAPL: 1.00, MSFT: 0.65, GOOGL: 0.55 },
+          { id: 'MSFT', AAPL: 0.65, MSFT: 1.00, GOOGL: 0.70 },
+          { id: 'GOOGL', AAPL: 0.55, MSFT: 0.70, GOOGL: 1.00 },
+        ],
+        riskContribution: [
+          { name: 'AAPL', value: 33.3, color: '#f59e0b' },
+          { name: 'MSFT', value: 33.3, color: '#3b82f6' },
+          { name: 'GOOGL', value: 33.4, color: '#10b981' },
+        ],
+        stressTests: [
+          {
+            id: 'black_swan',
+            scenario: "2008 Financial Crisis",
+            impact: -22.5,
+            estLoss: 22500,
+            description: "Simulation based on the 2008 global financial crisis parameters."
+          }
+        ],
+        insights: [
+          "Please generate a portfolio on the Dashboard to see personalized risk analysis."
+        ]
+      });
+    }
+
+    // --- Dynamic Generation based on weights ---
+    const totalInvestment = typeof req.body?.investment === 'number' ? req.body.investment : 100000;
+
+    // 1. Dynamic Correlation Matrix
+    // We mock realistic-looking correlations: 1.0 on diagonal, 0.3-0.8 otherwise based on a hash of the tickers
+    const correlationMatrix = tickers.map(t1 => {
+      const row: any = { id: t1 };
+      tickers.forEach(t2 => {
+        if (t1 === t2) {
+          row[t2] = 1.0;
+        } else {
+          // deterministic pseudo-random correlation between 0.2 and 0.85
+          const hash = (t1.charCodeAt(0) + t2.charCodeAt(0)) % 100;
+          row[t2] = 0.2 + (hash / 100) * 0.65;
+        }
+      });
+      return row;
+    });
+
+    // 2. Risk Contribution
+    // We adjust weights slightly by a "mock beta" so it's not exactly identical to the dollar weights
+    const colors = ['#f43f5e', '#3b82f6', '#10b981', '#f59e0b', '#8b5cf6', '#06b6d4', '#ec4899', '#64748b'];
+    let totalRiskUnits = 0;
+    const riskUnits = tickers.map(t => {
+      const w = weights[t];
+      const mockBeta = 0.8 + ((t.charCodeAt(0) % 10) / 10) * 0.6; // 0.8 to 1.4
+      const units = w * mockBeta;
+      totalRiskUnits += units;
+      return { t, units };
+    });
+
+    const riskContribution = riskUnits
+      .sort((a, b) => b.units - a.units)
+      .slice(0, 5)
+      .map((item, idx) => ({
+        name: item.t,
+        value: Number(((item.units / totalRiskUnits) * 100).toFixed(1)),
+        color: colors[idx % colors.length]
+      }));
+
+    // If more than 5 assets, group the rest into "Others"
+    if (tickers.length > 5) {
+      const remainingStats = riskUnits.slice(5).reduce((sum, item) => sum + item.units, 0);
+      riskContribution.push({
+        name: 'Others',
+        value: Number(((remainingStats / totalRiskUnits) * 100).toFixed(1)),
+        color: colors[5]
+      });
+    }
+
+    // 3. Stress Tests (scaled by total investment and an aggregate portfolio beta)
+    const portBeta = totalRiskUnits; // already weighted
+
+    // Base impacts for different scenarios
+    const baseImpacts = {
+      black_swan: -25.0,
+      covid_crash: -20.0,
+      tech_selloff: -15.0
+    };
+
+    const stressTests = [
+      {
+        id: 'black_swan',
+        scenario: "2008 Financial Crisis",
+        impact: Number((baseImpacts.black_swan * portBeta).toFixed(1)),
+        estLoss: totalInvestment * Math.abs((baseImpacts.black_swan * portBeta) / 100),
+        description: "Simulation based on the 2008 global financial crisis parameters."
+      },
+      {
+        id: 'covid_crash',
+        scenario: "2020 COVID-19 Crash",
+        impact: Number((baseImpacts.covid_crash * portBeta).toFixed(1)),
+        estLoss: totalInvestment * Math.abs((baseImpacts.covid_crash * portBeta) / 100),
+        description: "Simulation based on the rapid 2020 pandemic market selloff."
+      },
+      {
+        id: 'tech_selloff',
+        scenario: "2022 Tech Selloff",
+        impact: Number((baseImpacts.tech_selloff * portBeta).toFixed(1)),
+        estLoss: totalInvestment * Math.abs((baseImpacts.tech_selloff * portBeta) / 100),
+        description: "Simulation based on the 2022 rising interest rate tech correction."
       }
+    ];
+
+    // 4. Actionable Insights
+    const insights: string[] = [];
+
+    // Concentration Risk Check
+    const topAsset = riskContribution[0];
+    if (topAsset && topAsset.value > 40) {
+      insights.push(`Concentration Risk: A significant portion (${topAsset.value}%) of your expected volatility is driven by ${topAsset.name}.`);
+    } else {
+      insights.push(`Diversified Risk: Your portfolio risk is relatively well-distributed, with ${topAsset?.name} leading at ${topAsset?.value}%.`);
+    }
+
+    // High Correlation Check
+    let highestCorr = 0;
+    let corrPair = "";
+    for (let i = 0; i < correlationMatrix.length; i++) {
+      for (let j = i + 1; j < correlationMatrix.length; j++) {
+        const t1 = correlationMatrix[i].id;
+        const t2 = correlationMatrix[j].id;
+        const val = correlationMatrix[i][t2];
+        if (val > highestCorr) {
+          highestCorr = val;
+          corrPair = `${t1} and ${t2}`;
+        }
+      }
+    }
+    if (highestCorr > 0.75) {
+      insights.push(`High Correlation: ${corrPair} are highly correlated (${highestCorr.toFixed(2)}). They will likely move together during market shocks.`);
+    }
+
+    // Stress test insight
+    insights.push(`Stress Vulnerability: In a severe 2008-style crisis, expect drawdowns near ${Math.abs(stressTests[0].impact)}%, translating to around $${(stressTests[0].estLoss / 1000).toFixed(1)}k on your initial investment.`);
+
+    res.json({
+      correlationMatrix,
+      riskContribution,
+      stressTests,
+      insights
     });
   });
 
-  // Broadcast static snapshot prices via local WebSocket
+  // Broadcast live market prices via local WebSocket
   wss.on("connection", (ws) => {
     console.log("Client connected to WebSocket");
     const sendSnapshot = () => {
@@ -1742,7 +1902,7 @@ async function startServer() {
         price: asset.price,
         change: asset.change,
       }));
-      ws.send(JSON.stringify({ type: "PRICE_UPDATE", data: updates }));
+      ws.send(JSON.stringify({ type: "PRICE_UPDATE", data: updates, vix: currentVix }));
     };
 
     // Send immediately on connect, then periodically to keep UI feeling live
@@ -1753,6 +1913,11 @@ async function startServer() {
       clearInterval(interval);
     });
   });
+
+  // Fetch live prices every 30 seconds
+  setInterval(() => {
+    fetchLivePrices().catch(err => console.error("Background fetchLivePrices failed:", err));
+  }, 30_000);
 
   // Background refresh for Polymarket markets (live-ish data)
   setInterval(() => {

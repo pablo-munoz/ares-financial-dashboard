@@ -13,7 +13,8 @@ import {
   AlertCircle,
   X,
   Wallet,
-  ExternalLink
+  ExternalLink,
+  HelpCircle
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { PolymarketData } from '../types';
@@ -201,28 +202,22 @@ export const Polymarket: React.FC = () => {
 
               <div className="grid grid-cols-2 gap-4 pt-4 border-t border-slate-50">
                 <div>
-                  <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">
-                    Fair Value
-                    <span
-                      className="ml-1 text-[11px] font-bold text-slate-300 cursor-help"
-                      title="Model-implied probability based on longer-term price action and aggregated trade flow."
-                    >
-                      ?
-                    </span>
-                  </p>
-                  <p className="text-lg font-black text-ares-green">{(signal.fairValue * 100).toFixed(0)}%</p>
+                  <div className="flex flex-col">
+                    <div className="flex items-center gap-1.5 mb-1 text-slate-400">
+                      <p className="text-xs font-black tracking-widest uppercase">Fair Value</p>
+                      <HelpCircle className="w-3 h-3 text-slate-300" />
+                    </div>
+                    <p className="text-lg font-black text-ares-green">{(signal.fairValue * 100).toFixed(1)}%</p>
+                  </div>
                 </div>
                 <div>
-                  <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">
-                    Market Price
-                    <span
-                      className="ml-1 text-[11px] font-bold text-slate-300 cursor-help"
-                      title="Recent trade-implied probability from Polymarket (short-term VWAP)."
-                    >
-                      ?
-                    </span>
-                  </p>
-                  <p className="text-lg font-black text-slate-900">{(signal.marketPrice * 100).toFixed(0)}%</p>
+                  <div className="flex flex-col">
+                    <div className="flex items-center gap-1.5 mb-1 text-slate-400">
+                      <p className="text-xs font-black tracking-widest uppercase">Market Price</p>
+                      <HelpCircle className="w-3 h-3 text-slate-300" />
+                    </div>
+                    <p className="text-lg font-black text-slate-900">{(signal.marketPrice * 100).toFixed(1)}%</p>
+                  </div>
                 </div>
               </div>
 
@@ -477,13 +472,13 @@ export const Polymarket: React.FC = () => {
                   </div>
 
                   <div className="grid grid-cols-2 gap-4">
-                    <div className="p-4 bg-emerald-50 rounded-2xl border border-emerald-100">
-                      <p className="text-[10px] font-black text-emerald-600 uppercase tracking-widest mb-1">Fair Value</p>
-                      <p className="text-xl font-black text-emerald-700">{(selectedMarket.fairValue * 100).toFixed(0)}%</p>
+                    <div className="flex-1 bg-emerald-50/50 rounded-xl p-4 border border-emerald-100 flex flex-col justify-center">
+                      <p className="text-[10px] font-black tracking-widest uppercase text-emerald-700 mb-1">Fair Value</p>
+                      <p className="text-xl font-black text-emerald-700">{(selectedMarket.fairValue * 100).toFixed(1)}%</p>
                     </div>
-                    <div className="p-4 bg-slate-50 rounded-2xl border border-slate-100">
-                      <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Market Price</p>
-                      <p className="text-xl font-black text-slate-900">{(selectedMarket.marketPrice * 100).toFixed(0)}%</p>
+                    <div className="flex-1 bg-slate-50/80 rounded-xl p-4 border border-slate-100 flex flex-col justify-center">
+                      <p className="text-[10px] font-black tracking-widest uppercase text-slate-400 mb-1">Market Price</p>
+                      <p className="text-xl font-black text-slate-900">{(selectedMarket.marketPrice * 100).toFixed(1)}%</p>
                     </div>
                   </div>
 
