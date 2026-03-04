@@ -66,16 +66,27 @@ type PolymarketData = {
 const POLYMARKET_BASE_URL =
   process.env.POLYMARKET_BASE_URL ?? "https://gamma-api.polymarket.com";
 
-const assetRiskScore: Record<string, number> = {
-  AAPL: 0.6,
-  MSFT: 0.5,
-  GOOGL: 0.6,
-  AMZN: 0.7,
-  TSLA: 0.9,
-  NVDA: 0.85,
-  META: 0.75,
-  V: 0.4,
-  JPM: 0.45,
+// Deterministic risk scoring based on asset sector and unique ticker hashing
+const calculateRiskScore = (asset: Asset): number => {
+  let baseRisk = 0.5;
+  const s = (asset.sector || "").toLowerCase();
+
+  if (s.includes("crypto") || s.includes("bitcoin")) baseRisk = 0.95;
+  else if (s.includes("technology") || s.includes("communication")) baseRisk = 0.75;
+  else if (s.includes("consumer discretionary") || s.includes("industrials")) baseRisk = 0.65;
+  else if (s.includes("real estate") || s.includes("financials")) baseRisk = 0.55;
+  else if (s.includes("health care") || s.includes("energy")) baseRisk = 0.45;
+  else if (s.includes("consumer staples")) baseRisk = 0.35;
+  else if (s.includes("commodities")) baseRisk = 0.30;
+  else if (s.includes("fixed income") || s.includes("bond")) baseRisk = 0.15;
+  else if (s.includes("etf")) baseRisk = 0.4;
+
+  // Create deterministic variance from -0.1 to +0.1 based on ticker letters
+  let hash = 0;
+  for (let i = 0; i < asset.id.length; i++) hash += asset.id.charCodeAt(i);
+  const variance = ((hash % 20) - 10) / 100;
+
+  return Math.min(1.0, Math.max(0.05, baseRisk + variance));
 };
 
 let assets: Asset[] = [];
@@ -1350,21 +1361,42 @@ async function startServer() {
   const buildOptimizationSimulation = (
     tickers: string[],
     investment: number,
-    risk: number,
+    risk: number, // User preferred risk (0 to 1)
     timeHorizonYears: number,
-    monthlyContribution: number
+    monthlyContribution: number,
+    isCompounded: boolean = true
   ) => {
     const weights: Record<string, number> = {};
 
-    const rawWeights = tickers.map(() => Math.random());
-    const rawSum = rawWeights.reduce((sum, v) => sum + v, 0) || 1;
+    // Generate intelligent deterministic weights aligning with the user's selected risk
+    // We score how closely an asset's risk matches the requested portfolio risk
+    const unnormalizedWeights = tickers.map((t) => {
+      const asset = assets.find(a => a.id === t);
+      const assetRisk = asset ? calculateRiskScore(asset) : 0.5;
+
+      // Calculate a "distance" from the requested risk
+      const distance = Math.abs(assetRisk - risk);
+
+      // Weights are inversely proportional to the distance plus a small base score
+      // Small penalty if distance is large, huge bonus if distance is small
+      let weightScore = 1.0 / (0.1 + distance);
+
+      // Add a slight deterministic randomized jitter to ensure varying weights
+      const hash = t.charCodeAt(0) + (t.charCodeAt(t.length - 1) || 0);
+      weightScore *= (0.8 + ((hash % 40) / 100));
+
+      return weightScore;
+    });
+
+    const sumScores = unnormalizedWeights.reduce((sum, v) => sum + v, 0);
 
     let assigned = 0;
     tickers.forEach((t, index) => {
       if (index === tickers.length - 1) {
+        // Last asset absorbs floating point rounding errors to equal precisely 100%
         weights[t] = Math.max(0, +(1 - assigned).toFixed(4));
       } else {
-        const w = rawWeights[index] / rawSum;
+        const w = unnormalizedWeights[index] / sumScores;
         const rounded = +w.toFixed(4);
         weights[t] = rounded;
         assigned += rounded;
@@ -1383,11 +1415,12 @@ async function startServer() {
     const growth = [];
     let currentVal = investment;
     let benchVal = investment;
+    let accumulatedCash = 0;
 
     for (let i = 0; i <= months; i++) {
       growth.push({
         month: i,
-        portfolio: currentVal,
+        portfolio: isCompounded ? currentVal : currentVal + accumulatedCash,
         benchmark: benchVal,
       });
 
@@ -1396,9 +1429,17 @@ async function startServer() {
       const benchReturn =
         0.08 / 12 + (Math.random() - 0.5) * (0.15 / Math.sqrt(12));
 
-      currentVal = (currentVal + monthlyContribution) * (1 + portReturn);
+      if (isCompounded) {
+        currentVal = (currentVal + monthlyContribution) * (1 + portReturn);
+      } else {
+        currentVal += monthlyContribution;
+        accumulatedCash += currentVal * portReturn;
+      }
+
       benchVal = (benchVal + monthlyContribution) * (1 + benchReturn);
     }
+
+    const finalPortfolioValue = isCompounded ? currentVal : currentVal + accumulatedCash;
 
     return {
       optimization: {
@@ -1411,7 +1452,7 @@ async function startServer() {
       backtest: {
         growth,
         portfolio_total_return:
-          Math.round(((currentVal / (investment + monthlyContribution * months)) - 1) * 10000) / 10000,
+          Math.round(((finalPortfolioValue / (investment + monthlyContribution * months)) - 1) * 10000) / 10000,
         benchmark_total_return:
           Math.round(((benchVal / (investment + monthlyContribution * months)) - 1) * 10000) / 10000,
         max_drawdown_pct: -Math.round((10 + Math.random() * 20) * 10) / 10,
@@ -1497,13 +1538,15 @@ async function startServer() {
       typeof monthly_contribution === "number"
         ? monthly_contribution
         : parseFloat(monthly_contribution) || 0;
+    const isCompounded = req.body?.is_compounded ?? true;
 
     const simulation = buildOptimizationSimulation(
       tickers,
       inv,
       risk,
       horizon,
-      monthly
+      monthly,
+      isCompounded
     );
 
     res.json({
@@ -1641,8 +1684,8 @@ async function startServer() {
     );
 
     const ranked = [...assets].sort((a, b) => {
-      const riskA = assetRiskScore[a.id] ?? risk;
-      const riskB = assetRiskScore[b.id] ?? risk;
+      const riskA = calculateRiskScore(a);
+      const riskB = calculateRiskScore(b);
       return (
         Math.abs(riskA - risk) -
         Math.abs(riskB - risk)
@@ -1651,13 +1694,15 @@ async function startServer() {
 
     const selected = ranked.slice(0, desiredCount);
     const tickers = selected.map((a) => a.id);
+    const isCompounded = req.body?.is_compounded ?? true;
 
     const simulation = buildOptimizationSimulation(
       tickers,
       inv,
       risk,
       horizon,
-      monthly
+      monthly,
+      isCompounded
     );
 
     res.json({
@@ -1695,21 +1740,92 @@ async function startServer() {
     }
   });
 
-  app.get("/api/efficient-frontier", (req, res) => {
+  app.post("/api/efficient-frontier", (req, res) => {
+    // Read user's generated portfolio state if available
+    const weights: Record<string, number> = req.body?.weights || {};
+    const tickers = Object.keys(weights);
+
+    // Fallback if no portfolio is generated
+    const simTickers = tickers.length > 0 ? tickers : ['SPY', 'QQQ', 'TLT', 'GLD'];
+    const simWeights = tickers.length > 0 ? weights : { SPY: 0.45, TLT: 0.3, QQQ: 0.15, GLD: 0.1 };
+
+    // 1. Calculate Active Portfolio metrics
+    let activeReturn = 0;
+    let activeRisk = 0;
+    const activeData = simTickers.map(t => {
+      const asset = assets.find(a => a.id === t);
+      const risk = asset ? calculateRiskScore(asset) : 0.5;
+      const expReturn = 0.04 + (risk * 0.12);
+      return { risk, expReturn, w: simWeights[t] };
+    });
+
+    activeData.forEach(item => {
+      activeReturn += item.expReturn * item.w;
+      activeRisk += item.risk * item.w;
+    });
+
+    // We scale risk up slightly to make it display nicely on the scatter as roughly 5-25%
+    const scaleReturn = (r: number) => Math.round(r * 100 * 10) / 10;
+    const scaleRisk = (r: number) => Math.round(r * 30 * 10) / 10;
+
+    const activePt = {
+      risk: scaleRisk(activeRisk),
+      return: scaleReturn(activeReturn),
+      ratio: scaleReturn(activeReturn) / scaleRisk(activeRisk),
+      type: 'portfolio'
+    };
+
+    // 2. Monte Carlo Simulation: Generate 50 random portfolios to find the efficient frontier
+    const scatter = [];
+    let maxSharpe = { risk: 0, return: 0, ratio: -100, weights: {} as Record<string, number> };
+    let minVol = { risk: 100, return: 0, ratio: 0, weights: {} as Record<string, number> };
+
+    for (let i = 0; i < 50; i++) {
+      // Generate random weights that sum to 1
+      let raw = simTickers.map(() => Math.random());
+      let sum = raw.reduce((a, b) => a + b, 0);
+      let ws = raw.map(v => v / sum);
+
+      let ptReturn = 0;
+      let ptRisk = 0;
+
+      activeData.forEach((item, idx) => {
+        ptReturn += item.expReturn * ws[idx];
+        ptRisk += item.risk * ws[idx];
+      });
+
+      // Create some correlation jitter so it forms a scatter blob instead of a straight line
+      ptRisk *= (0.9 + Math.random() * 0.2);
+
+      const finalRisk = scaleRisk(ptRisk);
+      const finalReturn = scaleReturn(ptReturn);
+      const ratio = finalReturn / (finalRisk || 1);
+
+      const pt = { risk: finalRisk, return: finalReturn, type: 'scatter', ratio, weights: {} as Record<string, number> };
+      simTickers.forEach((t, idx) => pt.weights[t] = ws[idx]);
+
+      scatter.push(pt);
+
+      if (ratio > maxSharpe.ratio) maxSharpe = pt;
+      if (finalRisk < minVol.risk) minVol = pt;
+    }
+
+    // 3. Current Portfolio formatting
+    // We add it to scatter to optionally render it together, but distinct in UI
+    scatter.push({ ...activePt, type: 'current_portfolio' });
+
+    // Format Allocations (Max Sharpe) for the pie chart list
+    const allocations = simTickers.map(t => ({
+      name: t,
+      value: Math.round(maxSharpe.weights[t] * 100)
+    })).sort((a, b) => b.value - a.value).slice(0, 5); // top 5
+
     res.json({
-      scatter: Array.from({ length: 50 }, (_, i) => ({
-        risk: 2 + Math.random() * 15,
-        return: 4 + Math.random() * 12,
-        type: 'portfolio'
-      })),
-      maxSharpe: { risk: 8.5, return: 12.8, ratio: 1.45 },
-      minVol: { risk: 2.1, return: 4.2, ratio: 0.82 },
-      allocations: [
-        { name: 'US Equities', value: 45 },
-        { name: 'Intl Bonds', value: 30 },
-        { name: 'Real Estate', value: 15 },
-        { name: 'Cash', value: 10 },
-      ]
+      scatter,
+      maxSharpe: { risk: maxSharpe.risk, return: maxSharpe.return, ratio: maxSharpe.ratio },
+      minVol: { risk: minVol.risk, return: minVol.return, ratio: minVol.ratio },
+      allocations,
+      currentPortfolio: { risk: activePt.risk, return: activePt.return, ratio: activePt.ratio }
     });
   });
 

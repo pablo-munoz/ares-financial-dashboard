@@ -34,9 +34,15 @@ export default function App() {
           setAssets(payload.data);
         }
       });
-    fetch('/api/indices').then(res => res.json()).then(setIndices);
-    fetch('/api/efficient-frontier').then(res => res.json()).then(setFrontierData);
-    fetch('/api/backtest').then(res => res.json()).then(setBacktestData);
+    Promise.all([
+      fetch('/api/indices').then(res => res.json()),
+      fetch('/api/backtest').then(res => res.json())
+    ])
+      .then(([indicesRes, backtestRes]) => {
+        setIndices(indicesRes);
+        setBacktestData(backtestRes);
+      })
+      .catch(console.error);
 
     // WebSocket setup
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
@@ -76,6 +82,15 @@ export default function App() {
     })
       .then(res => res.json())
       .then(setRiskData)
+      .catch(console.error);
+
+    fetch('/api/efficient-frontier', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body)
+    })
+      .then(res => res.json())
+      .then(setFrontierData)
       .catch(console.error);
   }, [optimizationResult]);
 

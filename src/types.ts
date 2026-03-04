@@ -33,6 +33,7 @@ export interface FrontierData {
   scatter: { risk: number; return: number; type: string }[];
   maxSharpe: { risk: number; return: number; ratio: number };
   minVol: { risk: number; return: number; ratio: number };
+  currentPortfolio: { risk: number; return: number; ratio: number };
   allocations: { name: string; value: number }[];
 }
 

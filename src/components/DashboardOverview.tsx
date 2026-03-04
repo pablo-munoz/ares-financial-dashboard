@@ -54,6 +54,7 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
     time_horizon_years: 5,
     monthly_contribution: 500,
     num_holdings: 5,
+    is_compounded: true,
   });
 
   const handleOptimize = async (e: React.FormEvent) => {
@@ -74,6 +75,7 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
             time_horizon_years: formData.time_horizon_years,
             monthly_contribution: formData.monthly_contribution,
             num_holdings: formData.num_holdings,
+            is_compounded: formData.is_compounded,
           };
 
       const response = await fetch(endpoint, {
@@ -126,7 +128,10 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
         (sum, r) => sum + (r.investedDollars ?? 0),
         0
       );
-      const leftoverCash = activeInvestment - totalInvested;
+      // Neutralize slight javascript fractional math errors
+      let rawLeftover = activeInvestment - totalInvested;
+      if (Math.abs(rawLeftover) < 0.05) rawLeftover = 0;
+      const leftoverCash = Math.max(0, rawLeftover);
 
       return { rows, totalInvested, leftoverCash };
     })()
@@ -384,6 +389,19 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
               </div>
             </div>
 
+            <div className="flex items-center gap-3 bg-slate-50 p-3 rounded-xl border border-slate-100 cursor-pointer hover:border-slate-200 transition-colors" onClick={() => setFormData({ ...formData, is_compounded: !formData.is_compounded })}>
+              <div className={cn(
+                "w-5 h-5 rounded flex items-center justify-center transition-colors",
+                formData.is_compounded ? "bg-ares-green text-white" : "bg-white border-2 border-slate-300"
+              )}>
+                {formData.is_compounded && <CheckCircle2 className="w-3 h-3" />}
+              </div>
+              <div>
+                <p className="text-xs font-bold text-slate-900 leading-none">Reinvest Earnings</p>
+                <p className="text-[10px] text-slate-500 mt-1">Compound interest exponentially</p>
+              </div>
+            </div>
+
             <button
               type="submit"
               disabled={isOptimizing}
@@ -538,6 +556,7 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
                         <Tooltip
                           contentStyle={{ borderRadius: '16px', border: 'none', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)' }}
                           formatter={(value: number) => [`$${value.toLocaleString()}`, 'Value']}
+                          labelFormatter={(label) => `Month ${label}`}
                         />
                         <Area type="monotone" dataKey="portfolio" stroke="#36e27b" strokeWidth={3} fillOpacity={1} fill="url(#colorPort)" />
                         <Line type="monotone" dataKey="benchmark" stroke="#cbd5e1" strokeWidth={2} strokeDasharray="5 5" dot={false} />

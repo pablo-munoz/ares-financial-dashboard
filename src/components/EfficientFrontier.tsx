@@ -1,18 +1,18 @@
 import React from 'react';
-import { 
-  TrendingUp, 
-  Download, 
+import {
+  TrendingUp,
+  Download,
   Sliders
 } from 'lucide-react';
-import { 
-  ScatterChart, 
-  Scatter, 
-  XAxis, 
-  YAxis, 
-  ZAxis, 
-  CartesianGrid, 
-  Tooltip, 
-  ResponsiveContainer, 
+import {
+  ScatterChart,
+  Scatter,
+  XAxis,
+  YAxis,
+  ZAxis,
+  CartesianGrid,
+  Tooltip,
+  ResponsiveContainer,
   Cell,
   LineChart,
   Line,
@@ -51,12 +51,16 @@ export const EfficientFrontier: React.FC<EfficientFrontierProps> = ({ data }) =>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <div className="lg:col-span-2 bg-white rounded-3xl border border-slate-100 p-8 shadow-sm">
-          <div className="flex items-center justify-between mb-8">
+          <div className="flex flex-wrap items-center justify-between gap-4 mb-8">
             <h3 className="text-lg font-bold text-slate-900 font-display">Interactive Frontier Scatter</h3>
-            <div className="flex items-center gap-4 text-[10px] font-black tracking-widest uppercase text-slate-400">
+            <div className="flex flex-wrap items-center gap-x-6 gap-y-3 text-[10px] font-black tracking-widest uppercase text-slate-400">
+              <div className="flex items-center gap-1.5">
+                <span className="w-2 h-2 rounded-full bg-slate-300"></span>
+                <span>Theoretical Mix</span>
+              </div>
               <div className="flex items-center gap-1.5">
                 <span className="w-2 h-2 rounded-full bg-ares-green"></span>
-                <span>Portfolio Mix</span>
+                <span className="text-ares-dark-green font-bold">Active Portfolio</span>
               </div>
               <div className="flex items-center gap-1.5">
                 <span className="w-2 h-2 rounded-full bg-amber-500"></span>
@@ -68,38 +72,41 @@ export const EfficientFrontier: React.FC<EfficientFrontierProps> = ({ data }) =>
               </div>
             </div>
           </div>
-          
+
           <div className="h-[400px] w-full">
             <ResponsiveContainer width="100%" height="100%">
               <ScatterChart margin={{ top: 20, right: 20, bottom: 20, left: 20 }}>
                 <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
-                <XAxis 
-                  type="number" 
-                  dataKey="risk" 
-                  name="Risk" 
-                  unit="%" 
+                <XAxis
+                  type="number"
+                  dataKey="risk"
+                  name="Risk"
+                  unit="%"
                   label={{ value: 'RISK (VOLATILITY %)', position: 'bottom', offset: 0, fontSize: 10, fontWeight: 800 }}
                   tick={{ fontSize: 10 }}
                 />
-                <YAxis 
-                  type="number" 
-                  dataKey="return" 
-                  name="Return" 
-                  unit="%" 
+                <YAxis
+                  type="number"
+                  dataKey="return"
+                  name="Return"
+                  unit="%"
                   label={{ value: 'EXPECTED RETURN (%)', angle: -90, position: 'left', fontSize: 10, fontWeight: 800 }}
                   tick={{ fontSize: 10 }}
                 />
                 <Tooltip cursor={{ strokeDasharray: '3 3' }} />
-                <Scatter name="Portfolios" data={data.scatter} fill="#36e27b" opacity={0.4}>
-                  {data.scatter.map((entry, index) => (
-                    <Cell key={`cell-${index}`} fill="#36e27b" />
+                <Scatter name="Portfolios" data={data.scatter.filter(d => d.type === 'scatter')} fill="#94a3b8" opacity={0.4}>
+                  {data.scatter.filter(d => d.type === 'scatter').map((entry, index) => (
+                    <Cell key={`cell-${index}`} fill="#cbd5e1" />
                   ))}
                 </Scatter>
+                <Scatter name="Active Portfolio" data={data.scatter.filter(d => d.type === 'current_portfolio')} fill="#36e27b">
+                  <Cell fill="#36e27b" stroke="#36e27b" strokeWidth={15} strokeOpacity={0.4} />
+                </Scatter>
                 <Scatter name="Max Sharpe" data={[data.maxSharpe]} fill="#f59e0b">
-                   <Cell fill="#f59e0b" stroke="#f59e0b" strokeWidth={10} strokeOpacity={0.2} />
+                  <Cell fill="#f59e0b" stroke="#f59e0b" strokeWidth={10} strokeOpacity={0.2} />
                 </Scatter>
                 <Scatter name="Min Volatility" data={[data.minVol]} fill="#06b6d4">
-                   <Cell fill="#06b6d4" stroke="#06b6d4" strokeWidth={10} strokeOpacity={0.2} />
+                  <Cell fill="#06b6d4" stroke="#06b6d4" strokeWidth={10} strokeOpacity={0.2} />
                 </Scatter>
               </ScatterChart>
             </ResponsiveContainer>
@@ -107,27 +114,38 @@ export const EfficientFrontier: React.FC<EfficientFrontierProps> = ({ data }) =>
         </div>
 
         <div className="bg-white rounded-3xl border border-slate-100 p-8 shadow-sm">
-          <h3 className="text-lg font-bold text-slate-900 mb-6 font-display">Portfolio Metrics</h3>
-          <div className="space-y-6">
-            <div className="p-5 rounded-2xl bg-slate-50 border border-slate-100 relative overflow-hidden group hover:border-amber-200 transition-colors">
+          <div className="space-y-4">
+            <div className="p-5 rounded-2xl bg-ares-green/5 border border-ares-green/20 relative overflow-hidden group hover:border-ares-green/50 transition-colors shadow-sm">
+              <div className="flex items-center gap-2 mb-2">
+                <div className="w-2 h-2 rounded-full bg-ares-green"></div>
+                <p className="text-[10px] font-black text-ares-dark-green uppercase tracking-widest">Active Portfolio Ratio</p>
+              </div>
+              <p className="text-3xl font-black text-slate-900">{data.currentPortfolio.ratio.toFixed(2)}</p>
+              <div className="flex justify-between mt-3 text-xs">
+                <span className="text-slate-500">Return: <span className="text-emerald-500 font-bold">+{data.currentPortfolio.return}%</span></span>
+                <span className="text-slate-500">Risk: <span className="text-slate-700 font-bold">{data.currentPortfolio.risk}%</span></span>
+              </div>
+            </div>
+
+            <div className="p-4 rounded-xl bg-slate-50 border border-slate-100 relative overflow-hidden group hover:border-amber-200 transition-colors">
               <div className="flex items-center gap-2 mb-2">
                 <div className="w-2 h-2 rounded-full bg-amber-500"></div>
                 <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Max Sharpe Ratio</p>
               </div>
-              <p className="text-3xl font-black text-slate-900">{data.maxSharpe.ratio.toFixed(2)}</p>
-              <div className="flex justify-between mt-3 text-xs">
+              <p className="text-2xl font-black text-slate-900">{data.maxSharpe.ratio.toFixed(2)}</p>
+              <div className="flex justify-between mt-3 text-[11px]">
                 <span className="text-slate-500">Return: <span className="text-emerald-500 font-bold">+{data.maxSharpe.return}%</span></span>
                 <span className="text-slate-500">Risk: <span className="text-rose-500 font-bold">{data.maxSharpe.risk}%</span></span>
               </div>
             </div>
 
-            <div className="p-5 rounded-2xl bg-slate-50 border border-slate-100 relative overflow-hidden group hover:border-cyan-200 transition-colors">
+            <div className="p-4 rounded-xl bg-slate-50 border border-slate-100 relative overflow-hidden group hover:border-cyan-200 transition-colors">
               <div className="flex items-center gap-2 mb-2">
                 <div className="w-2 h-2 rounded-full bg-cyan-500"></div>
                 <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Min Volatility</p>
               </div>
-              <p className="text-3xl font-black text-slate-900">{data.minVol.ratio.toFixed(2)}</p>
-              <div className="flex justify-between mt-3 text-xs">
+              <p className="text-2xl font-black text-slate-900">{data.minVol.ratio.toFixed(2)}</p>
+              <div className="flex justify-between mt-3 text-[11px]">
                 <span className="text-slate-500">Return: <span className="text-emerald-500 font-bold">+{data.minVol.return}%</span></span>
                 <span className="text-slate-500">Risk: <span className="text-slate-700 font-bold">{data.minVol.risk}%</span></span>
               </div>
@@ -143,7 +161,7 @@ export const EfficientFrontier: React.FC<EfficientFrontierProps> = ({ data }) =>
                       <span className="font-black text-slate-900">{alloc.value}%</span>
                     </div>
                     <div className="w-full bg-slate-100 h-1.5 rounded-full overflow-hidden">
-                      <motion.div 
+                      <motion.div
                         initial={{ width: 0 }}
                         animate={{ width: `${alloc.value}%` }}
                         className={cn(
@@ -180,8 +198,8 @@ export const EfficientFrontier: React.FC<EfficientFrontierProps> = ({ data }) =>
             <AreaChart data={Array.from({ length: 12 }, (_, i) => ({ name: i, value: 10 + Math.random() * 5 }))}>
               <defs>
                 <linearGradient id="colorVal" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="5%" stopColor="#36e27b" stopOpacity={0.1}/>
-                  <stop offset="95%" stopColor="#36e27b" stopOpacity={0}/>
+                  <stop offset="5%" stopColor="#36e27b" stopOpacity={0.1} />
+                  <stop offset="95%" stopColor="#36e27b" stopOpacity={0} />
                 </linearGradient>
               </defs>
               <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />

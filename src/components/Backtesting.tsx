@@ -1,21 +1,21 @@
 import React from 'react';
-import { 
-  TrendingDown, 
-  TrendingUp, 
-  Download, 
-  BarChart3, 
+import {
+  TrendingDown,
+  TrendingUp,
+  Download,
+  BarChart3,
   History,
   AlertCircle,
   ChevronRight
 } from 'lucide-react';
-import { 
-  LineChart, 
-  Line, 
-  XAxis, 
-  YAxis, 
-  CartesianGrid, 
-  Tooltip, 
-  ResponsiveContainer, 
+import {
+  LineChart,
+  Line,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  ResponsiveContainer,
   AreaChart,
   Area
 } from 'recharts';
@@ -45,7 +45,7 @@ export const Backtesting: React.FC<BacktestingProps> = ({ data }) => {
               <p className="text-sm text-slate-500">Total Asset Value over time</p>
             </div>
             <div className="flex flex-col items-end">
-              <span className="text-2xl font-black text-slate-900">${data.growth[data.growth.length-1].portfolio.toLocaleString(undefined, { maximumFractionDigits: 0 })}</span>
+              <span className="text-2xl font-black text-slate-900">${data.growth[data.growth.length - 1].portfolio.toLocaleString(undefined, { maximumFractionDigits: 0 })}</span>
               <div className="flex items-center gap-1 text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-widest">
                 <TrendingUp className="w-3 h-3" /> {data.metrics.totalReturn}% All Time
               </div>
@@ -56,16 +56,17 @@ export const Backtesting: React.FC<BacktestingProps> = ({ data }) => {
               <AreaChart data={data.growth}>
                 <defs>
                   <linearGradient id="colorPortfolio" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="#36e27b" stopOpacity={0.1}/>
-                    <stop offset="95%" stopColor="#36e27b" stopOpacity={0}/>
+                    <stop offset="5%" stopColor="#36e27b" stopOpacity={0.1} />
+                    <stop offset="95%" stopColor="#36e27b" stopOpacity={0} />
                   </linearGradient>
                 </defs>
                 <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
                 <XAxis dataKey="month" hide />
                 <YAxis hide domain={['auto', 'auto']} />
-                <Tooltip 
+                <Tooltip
                   contentStyle={{ borderRadius: '16px', border: 'none', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)' }}
                   formatter={(value: number) => [`$${value.toLocaleString(undefined, { maximumFractionDigits: 0 })}`, '']}
+                  labelFormatter={(label) => `Month ${label}`}
                 />
                 <Area type="monotone" dataKey="portfolio" stroke="#36e27b" fillOpacity={1} fill="url(#colorPortfolio)" strokeWidth={3} />
                 <Line type="monotone" dataKey="benchmark" stroke="#94a3b8" strokeDasharray="5 5" dot={false} strokeWidth={2} />
@@ -85,7 +86,7 @@ export const Backtesting: React.FC<BacktestingProps> = ({ data }) => {
               <AlertCircle className="w-3 h-3" /> Critical Level
             </div>
             <div className="h-1.5 w-full bg-slate-100 rounded-full mt-4 relative z-10">
-              <motion.div 
+              <motion.div
                 initial={{ width: 0 }}
                 animate={{ width: '65%' }}
                 className="h-full bg-rose-500 rounded-full"
