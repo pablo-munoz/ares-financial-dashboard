@@ -8,7 +8,8 @@ import {
   CheckCircle2,
   ChevronRight,
   PieChart as PieChartIcon,
-  Activity
+  Activity,
+  Bookmark
 } from 'lucide-react';
 import {
   LineChart,
@@ -35,6 +36,7 @@ interface DashboardOverviewProps {
   setOptimizationResult?: (res: any) => void;
   onNavigateAlphaBacktest?: () => void;
   onNavigateRiskAnalysis?: () => void;
+  onSavePortfolio?: (name: string, result: any, investment: number) => void;
 }
 
 export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
@@ -43,10 +45,13 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
   optimizationResult,
   setOptimizationResult,
   onNavigateAlphaBacktest,
-  onNavigateRiskAnalysis
+  onNavigateRiskAnalysis,
+  onSavePortfolio
 }) => {
   const [isOptimizing, setIsOptimizing] = useState(false);
   const [engineMode, setEngineMode] = useState<'manual' | 'auto'>('manual');
+  const [saveMode, setSaveMode] = useState(false);
+  const [saveName, setSaveName] = useState('');
   const [formData, setFormData] = useState({
     tickers: ['AAPL', 'MSFT', 'GOOGL', 'AMZN'],
     investment: 100000,
@@ -528,19 +533,69 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
                     </div>
                   </div>
                   <div className="mt-6 pt-6 border-t border-slate-50">
-                    <div className="flex items-center justify-between">
-                      <span className="px-3 py-1 bg-slate-900 text-white text-[10px] font-black rounded-full uppercase tracking-widest">
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="px-3 py-1 bg-slate-900 text-white text-[10px] font-black rounded-full uppercase tracking-widest shrink-0">
                         {optimizationResult.optimization.strategy} Strategy
                       </span>
-                      <button className="text-ares-green text-xs font-bold flex items-center gap-1 hover:underline">
-                        View Details <ChevronRight className="w-3 h-3" />
-                      </button>
+                      {!saveMode ? (
+                        <button
+                          onClick={() => setSaveMode(true)}
+                          className="px-3 py-1.5 bg-ares-green/10 text-ares-dark-green text-xs font-bold rounded-xl flex items-center gap-1 hover:bg-ares-green/20 transition-colors"
+                        >
+                          <Bookmark className="w-3 h-3" /> Save Portfolio
+                        </button>
+                      ) : (
+                        <div className="flex items-center gap-1.5">
+                          <input
+                            autoFocus
+                            value={saveName}
+                            onChange={(e) => setSaveName(e.target.value)}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter' && saveName.trim()) {
+                                onSavePortfolio?.(saveName.trim(), optimizationResult, activeInvestment);
+                                setSaveMode(false);
+                                setSaveName('');
+                              } else if (e.key === 'Escape') {
+                                setSaveMode(false);
+                                setSaveName('');
+                              }
+                            }}
+                            placeholder="Portfolio name..."
+                            className="px-2 py-1 text-xs border border-slate-200 rounded-lg outline-none focus:ring-2 focus:ring-ares-green w-32"
+                          />
+                          <button
+                            disabled={!saveName.trim()}
+                            onClick={() => {
+                              if (saveName.trim()) {
+                                onSavePortfolio?.(saveName.trim(), optimizationResult, activeInvestment);
+                                setSaveMode(false);
+                                setSaveName('');
+                              }
+                            }}
+                            className="px-2 py-1 bg-ares-green text-white text-[10px] font-black rounded-lg disabled:opacity-50"
+                          >
+                            Save
+                          </button>
+                        </div>
+                      )}
                     </div>
                   </div>
                 </div>
 
                 <div className="md:col-span-2 bg-white rounded-3xl border border-slate-100 p-8 shadow-sm">
-                  <h3 className="text-lg font-bold text-slate-900 mb-6 font-display">Growth Projection</h3>
+                  <div className="flex items-center justify-between mb-6">
+                    <h3 className="text-lg font-bold text-slate-900 font-display">Growth Projection</h3>
+                    <div className="flex items-center gap-4 text-[10px] font-black tracking-widest uppercase mt-1">
+                      <div className="flex items-center gap-1.5">
+                        <span className="w-2 h-2 rounded-full bg-ares-green"></span>
+                        <span className="text-ares-dark-green font-bold">Optimized Portfolio</span>
+                      </div>
+                      <div className="flex items-center gap-1.5">
+                        <span className="w-2 h-2 rounded-full bg-slate-300"></span>
+                        <span className="text-slate-500 font-bold">S&P 500 Benchmark</span>
+                      </div>
+                    </div>
+                  </div>
                   <div className="h-64">
                     <ResponsiveContainer width="100%" height="100%">
                       <AreaChart data={optimizationResult.backtest.growth}>
@@ -598,6 +653,6 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
           </AnimatePresence>
         </div>
       </div>
-    </div>
+    </div >
   );
 };

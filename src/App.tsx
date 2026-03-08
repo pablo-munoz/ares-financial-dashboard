@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { Asset, RiskData, PriceUpdate, IndexData, FrontierData, BacktestData } from './types';
+import { Asset, RiskData, PriceUpdate, IndexData, FrontierData, BacktestData, SavedPortfolio } from './types';
 import { Sidebar } from './components/Sidebar';
 import { DashboardOverview } from './components/DashboardOverview';
 import { AssetSelection } from './components/AssetSelection';
@@ -11,6 +11,22 @@ import { IndicesSearch } from './components/IndicesSearch';
 import { VeoAnimation } from './components/VeoAnimation';
 import { Polymarket } from './components/Polymarket';
 import { AlphaBacktest } from './components/AlphaBacktest';
+import { SavedPortfolios } from './components/SavedPortfolios';
+
+const STORAGE_KEY = 'ares_saved_portfolios';
+
+function loadSaved(): SavedPortfolio[] {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    return raw ? JSON.parse(raw) : [];
+  } catch {
+    return [];
+  }
+}
+
+function persistSaved(portfolios: SavedPortfolio[]) {
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(portfolios));
+}
 
 export default function App() {
   const [activeTab, setActiveTab] = useState('dashboard');
@@ -22,6 +38,7 @@ export default function App() {
   const [backtestData, setBacktestData] = useState<BacktestData | null>(null);
   const [vix, setVix] = useState<number>(15.0);
   const [optimizationResult, setOptimizationResult] = useState<any>(null);
+  const [savedPortfolios, setSavedPortfolios] = useState<SavedPortfolio[]>(loadSaved);
 
   useEffect(() => {
     // Initial data fetch
@@ -100,6 +117,35 @@ export default function App() {
     );
   };
 
+  const handleSavePortfolio = (name: string, result: any, investment: number) => {
+    const entryPrices: Record<string, number> = {};
+    if (result?.optimization?.weights) {
+      Object.keys(result.optimization.weights).forEach(ticker => {
+        const match = assets.find(a => a.id === ticker);
+        entryPrices[ticker] = match ? match.price : 0;
+      });
+    }
+
+    const newEntry: SavedPortfolio = {
+      id: crypto.randomUUID(),
+      name,
+      savedAt: new Date().toISOString(),
+      investment,
+      entryPrices,
+      optimization: result.optimization,
+      backtest: result.backtest,
+    };
+    const updated = [newEntry, ...savedPortfolios];
+    setSavedPortfolios(updated);
+    persistSaved(updated);
+  };
+
+  const handleDeletePortfolio = (id: string) => {
+    const updated = savedPortfolios.filter(p => p.id !== id);
+    setSavedPortfolios(updated);
+    persistSaved(updated);
+  };
+
   return (
     <div className="flex min-h-screen">
       <Sidebar activeTab={activeTab} setActiveTab={setActiveTab} />
@@ -122,6 +168,15 @@ export default function App() {
                 setOptimizationResult={setOptimizationResult}
                 onNavigateAlphaBacktest={() => setActiveTab('alphaBacktest')}
                 onNavigateRiskAnalysis={() => setActiveTab('risk')}
+                onSavePortfolio={handleSavePortfolio}
+              />
+            )}
+            {activeTab === 'saved' && (
+              <SavedPortfolios
+                portfolios={savedPortfolios}
+                assets={assets}
+                onDelete={handleDeletePortfolio}
+                onNavigateDashboard={() => setActiveTab('dashboard')}
               />
             )}
             {activeTab === 'portfolio' && (
@@ -131,8 +186,8 @@ export default function App() {
                 toggleAsset={toggleAsset}
               />
             )}
-            {activeTab === 'risk' && <RiskAnalysis riskData={riskData} />}
-            {activeTab === 'frontier' && <EfficientFrontier data={frontierData} />}
+            {activeTab === 'risk' && <RiskAnalysis riskData={riskData} savedPortfolios={savedPortfolios} />}
+            {activeTab === 'frontier' && <EfficientFrontier data={frontierData} savedPortfolios={savedPortfolios} />}
             {activeTab === 'backtest' && <Backtesting data={backtestData} />}
             {activeTab === 'alphaBacktest' && <AlphaBacktest />}
             {activeTab === 'indices' && <IndicesSearch indices={indices} />}

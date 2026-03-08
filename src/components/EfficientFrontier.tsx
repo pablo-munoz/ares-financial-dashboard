@@ -2,7 +2,8 @@ import React from 'react';
 import {
   TrendingUp,
   Download,
-  Sliders
+  Sliders,
+  Loader2
 } from 'lucide-react';
 import {
   ScatterChart,
@@ -20,15 +21,50 @@ import {
   Area
 } from 'recharts';
 import { motion } from 'motion/react';
-import { FrontierData } from '../types';
+import { FrontierData, SavedPortfolio } from '../types';
 import { cn } from '../lib/utils';
 
 interface EfficientFrontierProps {
   data: FrontierData | null;
+  savedPortfolios: SavedPortfolio[];
 }
 
-export const EfficientFrontier: React.FC<EfficientFrontierProps> = ({ data }) => {
-  if (!data) return <div className="flex items-center justify-center h-full">Loading...</div>;
+export const EfficientFrontier: React.FC<EfficientFrontierProps> = ({ data, savedPortfolios }) => {
+  const [selectedSavedId, setSelectedSavedId] = React.useState<string>('current');
+  const [localFrontierData, setLocalFrontierData] = React.useState<FrontierData | null>(null);
+  const [isLoading, setIsLoading] = React.useState(false);
+
+  React.useEffect(() => {
+    if (selectedSavedId === 'current') {
+      setLocalFrontierData(data);
+      return;
+    }
+
+    const saved = savedPortfolios.find(p => p.id === selectedSavedId);
+    if (!saved) return;
+
+    setIsLoading(true);
+    fetch('/api/efficient-frontier', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        weights: saved.optimization.weights,
+        investment: saved.investment || 100000
+      })
+    })
+      .then(res => res.json())
+      .then(result => {
+        if (result.success) {
+          setLocalFrontierData(result.data);
+        }
+      })
+      .catch(console.error)
+      .finally(() => setIsLoading(false));
+  }, [selectedSavedId, data, savedPortfolios]);
+
+  const displayData = localFrontierData || data;
+
+  if (!displayData) return <div className="flex items-center justify-center h-full">Loading...</div>;
 
   return (
     <div className="space-y-8 animate-in fade-in duration-700">
@@ -39,7 +75,24 @@ export const EfficientFrontier: React.FC<EfficientFrontierProps> = ({ data }) =>
             Visualizing risk-return trade-offs. The curve represents the set of optimal portfolios that offer the highest expected return for a defined level of risk.
           </p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
+          <div className="relative">
+            <select
+              value={selectedSavedId}
+              onChange={(e) => setSelectedSavedId(e.target.value)}
+              className="appearance-none bg-white border border-slate-200 pl-4 pr-10 py-2 rounded-xl text-sm font-medium text-slate-900 hover:bg-slate-50 transition-colors flex items-center gap-2 focus:outline-none focus:ring-2 focus:ring-ares-green cursor-pointer"
+            >
+              <option value="current">Dashboard Portfolio</option>
+              {savedPortfolios.length > 0 && <optgroup label="Saved Portfolios">
+                {savedPortfolios.map(p => (
+                  <option key={p.id} value={p.id}>{p.name}</option>
+                ))}
+              </optgroup>}
+            </select>
+            <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-3 text-slate-400">
+              <svg className="fill-current h-4 w-4" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20"><path d="M9.293 12.95l.707.707L15.657 8l-1.414-1.414L10 10.828 5.757 6.586 4.343 8z" /></svg>
+            </div>
+          </div>
           <button className="px-4 py-2 bg-white border border-slate-200 rounded-xl text-sm font-medium text-slate-900 hover:bg-slate-50 transition-colors flex items-center gap-2">
             <Download className="w-4 h-4" /> Export Data
           </button>
@@ -49,7 +102,12 @@ export const EfficientFrontier: React.FC<EfficientFrontierProps> = ({ data }) =>
         </div>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 relative">
+        {isLoading && (
+          <div className="absolute inset-0 z-50 bg-white/50 backdrop-blur-sm rounded-3xl flex items-center justify-center">
+            <Loader2 className="w-8 h-8 text-ares-green animate-spin" />
+          </div>
+        )}
         <div className="lg:col-span-2 bg-white rounded-3xl border border-slate-100 p-8 shadow-sm">
           <div className="flex flex-wrap items-center justify-between gap-4 mb-8">
             <h3 className="text-lg font-bold text-slate-900 font-display">Interactive Frontier Scatter</h3>
@@ -94,18 +152,18 @@ export const EfficientFrontier: React.FC<EfficientFrontierProps> = ({ data }) =>
                   tick={{ fontSize: 10 }}
                 />
                 <Tooltip cursor={{ strokeDasharray: '3 3' }} />
-                <Scatter name="Portfolios" data={data.scatter.filter(d => d.type === 'scatter')} fill="#94a3b8" opacity={0.4}>
-                  {data.scatter.filter(d => d.type === 'scatter').map((entry, index) => (
+                <Scatter name="Portfolios" data={displayData.scatter.filter(d => d.type === 'scatter')} fill="#94a3b8" opacity={0.4}>
+                  {displayData.scatter.filter(d => d.type === 'scatter').map((entry, index) => (
                     <Cell key={`cell-${index}`} fill="#cbd5e1" />
                   ))}
                 </Scatter>
-                <Scatter name="Active Portfolio" data={data.scatter.filter(d => d.type === 'current_portfolio')} fill="#36e27b">
+                <Scatter name="Active Portfolio" data={displayData.scatter.filter(d => d.type === 'current_portfolio')} fill="#36e27b">
                   <Cell fill="#36e27b" stroke="#36e27b" strokeWidth={15} strokeOpacity={0.4} />
                 </Scatter>
-                <Scatter name="Max Sharpe" data={[data.maxSharpe]} fill="#f59e0b">
+                <Scatter name="Max Sharpe" data={[displayData.maxSharpe]} fill="#f59e0b">
                   <Cell fill="#f59e0b" stroke="#f59e0b" strokeWidth={10} strokeOpacity={0.2} />
                 </Scatter>
-                <Scatter name="Min Volatility" data={[data.minVol]} fill="#06b6d4">
+                <Scatter name="Min Volatility" data={[displayData.minVol]} fill="#06b6d4">
                   <Cell fill="#06b6d4" stroke="#06b6d4" strokeWidth={10} strokeOpacity={0.2} />
                 </Scatter>
               </ScatterChart>
@@ -120,10 +178,10 @@ export const EfficientFrontier: React.FC<EfficientFrontierProps> = ({ data }) =>
                 <div className="w-2 h-2 rounded-full bg-ares-green"></div>
                 <p className="text-[10px] font-black text-ares-dark-green uppercase tracking-widest">Active Portfolio Ratio</p>
               </div>
-              <p className="text-3xl font-black text-slate-900">{data.currentPortfolio.ratio.toFixed(2)}</p>
+              <p className="text-3xl font-black text-slate-900">{displayData.currentPortfolio.ratio.toFixed(2)}</p>
               <div className="flex justify-between mt-3 text-xs">
-                <span className="text-slate-500">Return: <span className="text-emerald-500 font-bold">+{data.currentPortfolio.return}%</span></span>
-                <span className="text-slate-500">Risk: <span className="text-slate-700 font-bold">{data.currentPortfolio.risk}%</span></span>
+                <span className="text-slate-500">Return: <span className="text-emerald-500 font-bold">+{displayData.currentPortfolio.return}%</span></span>
+                <span className="text-slate-500">Risk: <span className="text-slate-700 font-bold">{displayData.currentPortfolio.risk}%</span></span>
               </div>
             </div>
 
@@ -132,10 +190,10 @@ export const EfficientFrontier: React.FC<EfficientFrontierProps> = ({ data }) =>
                 <div className="w-2 h-2 rounded-full bg-amber-500"></div>
                 <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Max Sharpe Ratio</p>
               </div>
-              <p className="text-2xl font-black text-slate-900">{data.maxSharpe.ratio.toFixed(2)}</p>
+              <p className="text-2xl font-black text-slate-900">{displayData.maxSharpe.ratio.toFixed(2)}</p>
               <div className="flex justify-between mt-3 text-[11px]">
-                <span className="text-slate-500">Return: <span className="text-emerald-500 font-bold">+{data.maxSharpe.return}%</span></span>
-                <span className="text-slate-500">Risk: <span className="text-rose-500 font-bold">{data.maxSharpe.risk}%</span></span>
+                <span className="text-slate-500">Return: <span className="text-emerald-500 font-bold">+{displayData.maxSharpe.return}%</span></span>
+                <span className="text-slate-500">Risk: <span className="text-rose-500 font-bold">{displayData.maxSharpe.risk}%</span></span>
               </div>
             </div>
 
@@ -144,17 +202,17 @@ export const EfficientFrontier: React.FC<EfficientFrontierProps> = ({ data }) =>
                 <div className="w-2 h-2 rounded-full bg-cyan-500"></div>
                 <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Min Volatility</p>
               </div>
-              <p className="text-2xl font-black text-slate-900">{data.minVol.ratio.toFixed(2)}</p>
+              <p className="text-2xl font-black text-slate-900">{displayData.minVol.ratio.toFixed(2)}</p>
               <div className="flex justify-between mt-3 text-[11px]">
-                <span className="text-slate-500">Return: <span className="text-emerald-500 font-bold">+{data.minVol.return}%</span></span>
-                <span className="text-slate-500">Risk: <span className="text-slate-700 font-bold">{data.minVol.risk}%</span></span>
+                <span className="text-slate-500">Return: <span className="text-emerald-500 font-bold">+{displayData.minVol.return}%</span></span>
+                <span className="text-slate-500">Risk: <span className="text-slate-700 font-bold">{displayData.minVol.risk}%</span></span>
               </div>
             </div>
 
             <div className="pt-6 border-t border-slate-100">
               <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-4">Allocations (Max Sharpe)</p>
               <div className="space-y-4">
-                {data.allocations.map((alloc, i) => (
+                {displayData.allocations.map((alloc, i) => (
                   <div key={alloc.name}>
                     <div className="flex justify-between text-xs mb-1.5">
                       <span className="font-bold text-slate-700">{alloc.name}</span>

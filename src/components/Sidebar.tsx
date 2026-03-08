@@ -1,14 +1,15 @@
 import React from 'react';
-import { 
-  LayoutDashboard, 
-  Briefcase, 
-  ShieldAlert, 
-  TrendingUp, 
+import {
+  LayoutDashboard,
+  Briefcase,
+  ShieldAlert,
+  TrendingUp,
   Video,
   History,
   Search,
   Zap,
-  Activity
+  Activity,
+  Bookmark
 } from 'lucide-react';
 import { cn } from '../lib/utils';
 
@@ -28,6 +29,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab }) => 
     <nav className="space-y-2 flex-1">
       {[
         { id: 'dashboard', icon: LayoutDashboard, label: 'Dashboard' },
+        { id: 'saved', icon: Bookmark, label: 'Saved Portfolios' },
         { id: 'portfolio', icon: Briefcase, label: 'Portfolio Builder' },
         { id: 'risk', icon: ShieldAlert, label: 'Risk Analysis' },
         { id: 'frontier', icon: TrendingUp, label: 'Efficient Frontier' },
@@ -42,8 +44,8 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab }) => 
           onClick={() => setActiveTab(item.id)}
           className={cn(
             "w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-200",
-            activeTab === item.id 
-              ? "bg-ares-green/10 text-ares-dark-green font-bold" 
+            activeTab === item.id
+              ? "bg-ares-green/10 text-ares-dark-green font-bold"
               : "text-slate-500 hover:bg-slate-50 hover:text-slate-900"
           )}
         >

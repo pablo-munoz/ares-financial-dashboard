@@ -93,3 +93,24 @@ export interface PolymarketData {
   whaleFeed: PolymarketWhaleTrade[];
   lastUpdated?: number; // epoch ms
 }
+
+export interface SavedPortfolio {
+  id: string;
+  name: string;
+  savedAt: string;
+  investment: number;
+  entryPrices: Record<string, number>;
+  optimization: {
+    weights: Record<string, number>;
+    expected_return: number;
+    volatility: number;
+    sharpe_ratio: number;
+    strategy: string;
+  };
+  backtest: {
+    growth: { month: number; portfolio: number; benchmark: number }[];
+    portfolio_total_return: number;
+    benchmark_total_return: number;
+    max_drawdown_pct: number;
+  };
+}
