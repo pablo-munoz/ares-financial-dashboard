@@ -999,14 +999,16 @@ async function refreshPolymarketDataFromApi(opts?: {
     .filter((m): m is NonNullable<typeof m> => m !== null)
     // Filter out very illiquid / inactive markets
     .filter((m) => {
-      if (m.volumeRecent <= 100) return false;
+      if (m.volumeRecent <= 50) return false;
       // Exclude sports/financial up-or-down slug noise
       const titleL = (m.title ?? m.slug ?? '').toLowerCase();
       if (titleL.includes('up or down') || titleL.includes('up-or-down') || titleL.includes('price above') || titleL.includes('price below')) return false;
       return true;
     })
     .sort((a, b) => b.volumeRecent - a.volumeRecent)
-    .slice(0, 40);
+    .slice(0, 80);
+
+  console.log(`[Alpha] Pool: ${rankedMarkets.length} markets after filtering`);
 
   const pool = rankedMarkets;
 
@@ -1057,7 +1059,7 @@ async function refreshPolymarketDataFromApi(opts?: {
     const now = Date.now();
     const key = m.slug;
     const priceDiff = Math.abs(priceMid - (polymarketStats[key]?.longVwap ?? priceMid));
-    const alpha = 0.05; // slower EMA for more stability
+    const alpha = 0.10; // faster EMA for more responsiveness
 
     const prevStats = polymarketStats[key] ?? {
       longVwap: priceMid,
@@ -1083,11 +1085,25 @@ async function refreshPolymarketDataFromApi(opts?: {
       avgTradeSize,
     };
 
-    // 1. Zero-Lag Fair Value (Mean Reversion)
-    // baseFair = longVwap + (MeanReversionConstant * (longVwap - priceMid))
-    const baseFair = longVwap + (0.15 * (longVwap - priceMid));
+    // --- ALPHA V4.0: Improved Fair Value Estimation ---
 
-    // 2. Order Book Imbalance (OBI) & Flow Skew
+    // 1. Base Fair Value
+    // Warm: EMA-smoothed longVwap with mean-reversion
+    // Cold: Use the trade-weighted price trend as a directional seed
+    let baseFair: number;
+    if (prevStats.sampleCount > 0) {
+      baseFair = longVwap + (0.25 * (longVwap - priceMid));
+    } else {
+      // Cold start: compare last-traded price vs all-trade VWAP to detect recent momentum
+      const lastTrade = [...tradesForMarket].sort((a: any, b: any) =>
+        (Number(b.timestamp) || 0) - (Number(a.timestamp) || 0)
+      )[0];
+      const lastPrice = Number(lastTrade?.price) || priceMid;
+      // If last trade is above VWAP, fair value should be higher; and vice versa
+      baseFair = priceMid + (0.5 * (lastPrice - priceMid));
+    }
+
+    // 2. Order Flow Imbalance — ratio-based (not absolute dollar)
     const yesNo = tradesForMarket.reduce(
       (acc, tr: any) => {
         const sz = Number(tr.size) || 0;
@@ -1099,44 +1115,44 @@ async function refreshPolymarketDataFromApi(opts?: {
       },
       { yesNotion: 0, yesCount: 0, noNotion: 0, noCount: 0 }
     );
-    // obi = (yesNotional / yesTrades) - (noNotional / noTrades)
-    const obi = (yesNo.yesNotion / Math.max(1, yesNo.yesCount)) - (yesNo.noNotion / Math.max(1, yesNo.noCount));
-    const flowSkew = Math.max(-1, Math.min(1, obi / 500)); // normalized skew
+    const totalNotion = yesNo.yesNotion + yesNo.noNotion;
+    // flowRatio: +1 = all YES, -1 = all NO, 0 = balanced
+    const flowRatio = totalNotion > 0
+      ? (yesNo.yesNotion - yesNo.noNotion) / totalNotion
+      : 0;
 
     // 3. Sharp Multiplier (Insider Integration)
-    // Shifts the fair value based on direction of top-performing insiders
-    const sharpShift = getSharpDirection(key) * 0.03;
+    const sharpShift = getSharpDirection(key) * 0.06;
 
-    // 4. Sector-Specific Anchors (Internal Correlations)
+    // 4. Sector-Specific Anchors
     let sectorAnchor = 0;
     const titleLower = m.title.toLowerCase();
     if (titleLower.includes("btc") || titleLower.includes("bitcoin") || titleLower.includes("eth")) {
-      sectorAnchor = 0.01; // Placeholder for spot delta; favors the trend
+      sectorAnchor = 0.01;
     }
     if (isSportsMarket(m.title)) {
-      sectorAnchor = -0.01; // Sports entropy discount
+      sectorAnchor = -0.01;
     }
 
+    // 5. Assemble Fair Value
+    // flowRatio is already in [-1,1], multiply by 0.08 to shift fair value by up to 8pp
     const fairValue = Math.min(
       0.99,
-      Math.max(0.01, baseFair + (0.05 * flowSkew) + sharpShift + sectorAnchor)
+      Math.max(0.01, baseFair + (0.08 * flowRatio) + sharpShift + sectorAnchor)
     );
     const priceNow = priceShort;
 
-    // 5. Improved Signal Filtering (Noise Suppression)
-    let ev = (fairValue - priceNow) * 100; // percentage points
-    if (Math.abs(ev) < 3.0) { // Ignores minor noise per plan
-      ev = 0;
-    }
+    // 6. EV Calculation (no hard threshold — let Kelly sizing handle noise)
+    const ev = (fairValue - priceNow) * 100; // percentage points
 
     // 6. Risk-Adjusted Kelly Stake
     // (EV / Volatility) * LiquidityPenalty
     const volFactor = Math.max(0.01, rollingVolatility * 100);
     const liquidityPenalty = Math.min(1, m.volumeRecent / 5000);
-    let stake = ev === 0 ? 0 : Math.max(0, Math.min(10, (Math.abs(ev) / volFactor) * liquidityPenalty));
+    let stake = Math.max(0, Math.min(10, (Math.abs(ev) / volFactor) * liquidityPenalty));
 
     // Ensure interesting edges get at least a minimal stake
-    if (Math.abs(ev) >= 5 && stake > 0 && stake < 1) {
+    if (Math.abs(ev) >= 3 && stake > 0 && stake < 1) {
       stake = 1;
     }
 
@@ -1161,12 +1177,16 @@ async function refreshPolymarketDataFromApi(opts?: {
     kellyStake: number;
   }>;
 
-  // Rank by absolute edge so we see the most mispriced markets (rich or cheap)
-  const signalsRanked = rawSignals
-    .sort((a, b) => Math.abs(b.ev) - Math.abs(a.ev))
-    .slice(0, 36);
+  console.log(`[Alpha] Raw signals: ${rawSignals.length}, EV range: [${rawSignals.map(s => s.ev.toFixed(2)).slice(0, 10).join(', ')}...]`);
 
-  const windowSize = 3;
+  // Rank: highest EV first, show all signals (Kelly sizing handles noise)
+  const signalsRanked = rawSignals
+    .sort((a, b) => b.ev - a.ev)
+    .slice(0, 60);
+
+  console.log(`[Alpha] Ranked: ${signalsRanked.length}, top EVs: [${signalsRanked.slice(0, 5).map(s => s.ev.toFixed(2)).join(', ')}]`);
+
+  const windowSize = 9;
   if (opts?.rotate && signalsRanked.length > windowSize) {
     alphaRotation = (alphaRotation + windowSize) % signalsRanked.length;
   }
@@ -1177,6 +1197,8 @@ async function refreshPolymarketDataFromApi(opts?: {
     ...signalsRanked.slice(0, start),
   ];
   const selectedSignals = rotatedSignals.slice(0, windowSize);
+
+  console.log(`[Alpha] alphaRotation=${alphaRotation}, start=${start}, selected=${selectedSignals.length}, EVs: [${selectedSignals.map(s => s.ev.toFixed(2)).join(', ')}]`);
 
   polymarketLastAlphaSlugs = selectedSignals.map((s) => s.slug);
 

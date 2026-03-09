@@ -26,7 +26,7 @@ import {
   Cell
 } from 'recharts';
 import { motion, AnimatePresence } from 'motion/react';
-import { Asset } from '../types';
+import { Asset, SavedPortfolio } from '../types';
 import { cn } from '../lib/utils';
 
 interface DashboardOverviewProps {
@@ -37,6 +37,8 @@ interface DashboardOverviewProps {
   onNavigateAlphaBacktest?: () => void;
   onNavigateRiskAnalysis?: () => void;
   onSavePortfolio?: (name: string, result: any, investment: number) => void;
+  savedPortfolios?: SavedPortfolio[];
+  onLoadPortfolio?: (portfolio: SavedPortfolio) => void;
 }
 
 export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
@@ -46,7 +48,9 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
   setOptimizationResult,
   onNavigateAlphaBacktest,
   onNavigateRiskAnalysis,
-  onSavePortfolio
+  onSavePortfolio,
+  savedPortfolios = [],
+  onLoadPortfolio
 }) => {
   const [isOptimizing, setIsOptimizing] = useState(false);
   const [engineMode, setEngineMode] = useState<'manual' | 'auto'>('manual');
@@ -208,9 +212,36 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
           <h1 className="text-3xl font-extrabold text-slate-900 font-display tracking-tight mb-2">Market Intelligence</h1>
           <p className="text-slate-500">Real-time overview of your portfolio performance and market trends.</p>
         </div>
-        <div className="flex items-center gap-2 text-xs font-black tracking-widest uppercase text-slate-400">
-          <span className="w-2 h-2 rounded-full bg-ares-green animate-pulse"></span>
-          Live Market Feed
+        <div className="flex flex-col md:flex-row md:items-center gap-4">
+          <div className="relative">
+            <select
+              value=""
+              onChange={(e) => {
+                const id = e.target.value;
+                if (!id) return;
+                const portfolio = savedPortfolios.find(p => p.id === id);
+                if (portfolio && onLoadPortfolio) {
+                  onLoadPortfolio(portfolio);
+                }
+              }}
+              className="appearance-none bg-white border border-slate-200 pl-4 pr-10 py-1.5 rounded-xl text-xs font-bold uppercase tracking-widest text-slate-500 hover:bg-slate-50 hover:text-slate-900 transition-colors focus:outline-none focus:ring-2 focus:ring-ares-green cursor-pointer"
+            >
+              <option value="" disabled>Load Saved Portfolio...</option>
+              {savedPortfolios.length > 0 && <optgroup label="Saved Portfolios">
+                {savedPortfolios.map(p => (
+                  <option key={p.id} value={p.id}>{p.name}</option>
+                ))}
+              </optgroup>}
+            </select>
+            <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-3 text-slate-400">
+              <svg className="fill-current h-3 w-3" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20"><path d="M9.293 12.95l.707.707L15.657 8l-1.414-1.414L10 10.828 5.757 6.586 4.343 8z" /></svg>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2 text-xs font-black tracking-widest uppercase text-slate-400">
+            <span className="w-2 h-2 rounded-full bg-ares-green animate-pulse"></span>
+            Live Market Feed
+          </div>
         </div>
       </header>
 

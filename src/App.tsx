@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { Asset, RiskData, PriceUpdate, IndexData, FrontierData, BacktestData, SavedPortfolio } from './types';
+import { Asset, RiskData, PriceUpdate, IndexData, FrontierData, BacktestData, SavedPortfolio, SavedAlphaTrade } from './types';
 import { Sidebar } from './components/Sidebar';
 import { DashboardOverview } from './components/DashboardOverview';
 import { AssetSelection } from './components/AssetSelection';
@@ -12,8 +12,10 @@ import { VeoAnimation } from './components/VeoAnimation';
 import { Polymarket } from './components/Polymarket';
 import { AlphaBacktest } from './components/AlphaBacktest';
 import { SavedPortfolios } from './components/SavedPortfolios';
+import { SavedTrades } from './components/SavedTrades';
 
 const STORAGE_KEY = 'ares_saved_portfolios';
+const TRADES_STORAGE_KEY = 'ares_saved_trades';
 
 function loadSaved(): SavedPortfolio[] {
   try {
@@ -28,6 +30,19 @@ function persistSaved(portfolios: SavedPortfolio[]) {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(portfolios));
 }
 
+function loadSavedTrades(): SavedAlphaTrade[] {
+  try {
+    const raw = localStorage.getItem(TRADES_STORAGE_KEY);
+    return raw ? JSON.parse(raw) : [];
+  } catch {
+    return [];
+  }
+}
+
+function persistSavedTrades(trades: SavedAlphaTrade[]) {
+  localStorage.setItem(TRADES_STORAGE_KEY, JSON.stringify(trades));
+}
+
 export default function App() {
   const [activeTab, setActiveTab] = useState('dashboard');
   const [assets, setAssets] = useState<Asset[]>([]);
@@ -39,6 +54,7 @@ export default function App() {
   const [vix, setVix] = useState<number>(15.0);
   const [optimizationResult, setOptimizationResult] = useState<any>(null);
   const [savedPortfolios, setSavedPortfolios] = useState<SavedPortfolio[]>(loadSaved);
+  const [savedTrades, setSavedTrades] = useState<SavedAlphaTrade[]>(loadSavedTrades);
 
   useEffect(() => {
     // Initial data fetch
@@ -140,10 +156,33 @@ export default function App() {
     persistSaved(updated);
   };
 
+  const handleLoadPortfolio = (portfolio: SavedPortfolio) => {
+    setOptimizationResult({
+      optimization: portfolio.optimization,
+      backtest: portfolio.backtest,
+      metadata: {
+        totalInvestment: portfolio.investment || 100000,
+        loadedName: portfolio.name
+      }
+    });
+  };
+
   const handleDeletePortfolio = (id: string) => {
     const updated = savedPortfolios.filter(p => p.id !== id);
     setSavedPortfolios(updated);
     persistSaved(updated);
+  };
+
+  const handleSaveTrade = (trade: SavedAlphaTrade) => {
+    const updated = [trade, ...savedTrades];
+    setSavedTrades(updated);
+    persistSavedTrades(updated);
+  };
+
+  const handleDeleteTrade = (id: string) => {
+    const updated = savedTrades.filter(t => t.id !== id);
+    setSavedTrades(updated);
+    persistSavedTrades(updated);
   };
 
   return (
@@ -169,6 +208,8 @@ export default function App() {
                 onNavigateAlphaBacktest={() => setActiveTab('alphaBacktest')}
                 onNavigateRiskAnalysis={() => setActiveTab('risk')}
                 onSavePortfolio={handleSavePortfolio}
+                savedPortfolios={savedPortfolios}
+                onLoadPortfolio={handleLoadPortfolio}
               />
             )}
             {activeTab === 'saved' && (
@@ -191,7 +232,14 @@ export default function App() {
             {activeTab === 'backtest' && <Backtesting data={backtestData} />}
             {activeTab === 'alphaBacktest' && <AlphaBacktest />}
             {activeTab === 'indices' && <IndicesSearch indices={indices} />}
-            {activeTab === 'polymarket' && <Polymarket />}
+            {activeTab === 'polymarket' && <Polymarket onSaveTrade={handleSaveTrade} />}
+            {activeTab === 'savedTrades' && (
+              <SavedTrades
+                trades={savedTrades}
+                onDelete={handleDeleteTrade}
+                onNavigatePolymarket={() => setActiveTab('polymarket')}
+              />
+            )}
             {activeTab === 'veo' && <VeoAnimation />}
           </motion.div>
         </AnimatePresence>

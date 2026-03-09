@@ -114,3 +114,11 @@ export interface SavedPortfolio {
     max_drawdown_pct: number;
   };
 }
+
+export interface SavedAlphaTrade {
+  id: string;
+  savedAt: string;
+  signal: PolymarketAlphaSignal;
+  bankroll: number;
+  stakeAmount: number;
+}

@@ -14,13 +14,18 @@ import {
   X,
   Wallet,
   ExternalLink,
-  HelpCircle
+  HelpCircle,
+  Bookmark
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
-import { PolymarketData } from '../types';
+import { PolymarketData, SavedAlphaTrade } from '../types';
 import { cn } from '../lib/utils';
 
-export const Polymarket: React.FC = () => {
+interface PolymarketProps {
+  onSaveTrade?: (trade: SavedAlphaTrade) => void;
+}
+
+export const Polymarket: React.FC<PolymarketProps> = ({ onSaveTrade }) => {
   const [data, setData] = useState<PolymarketData | null>(null);
   const [loading, setLoading] = useState(true);
   const [isRefreshingAlpha, setIsRefreshingAlpha] = useState(false);
@@ -196,6 +201,24 @@ export const Polymarket: React.FC = () => {
                 >
                   <ArrowUpRight className="w-4 h-4 text-slate-400 group-hover:text-ares-green" />
                 </a>
+                <button
+                  className="p-2 bg-slate-50 rounded-xl hover:bg-amber-50 transition-colors"
+                  title="Save trade"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    if (onSaveTrade) {
+                      onSaveTrade({
+                        id: crypto.randomUUID(),
+                        savedAt: new Date().toISOString(),
+                        signal,
+                        bankroll,
+                        stakeAmount: bankroll * (signal.kellyStake / 100)
+                      });
+                    }
+                  }}
+                >
+                  <Bookmark className="w-4 h-4 text-slate-400 hover:text-amber-500" />
+                </button>
               </div>
 
               <h3 className="font-bold text-slate-900 mb-4 line-clamp-2 min-h-[3rem]">{signal.marketName}</h3>

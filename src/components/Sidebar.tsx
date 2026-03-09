@@ -9,7 +9,8 @@ import {
   Search,
   Zap,
   Activity,
-  Bookmark
+  Bookmark,
+  ClipboardList
 } from 'lucide-react';
 import { cn } from '../lib/utils';
 
@@ -37,6 +38,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab }) => 
         { id: 'alphaBacktest', icon: Activity, label: 'Alpha Backtest' },
         { id: 'indices', icon: Search, label: 'Indices Search' },
         { id: 'polymarket', icon: Zap, label: 'Polymarket Alpha' },
+        { id: 'savedTrades', icon: ClipboardList, label: 'Saved Trades' },
         { id: 'veo', icon: Video, label: 'AI Video (Veo)' },
       ].map((item) => (
         <button
