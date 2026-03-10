@@ -8,6 +8,7 @@ import { fileURLToPath } from "url";
 import dotenv from "dotenv";
 import Database from "better-sqlite3";
 import { runBacktest } from "./backtester.js";
+import { spawn } from "child_process";
 import YahooFinance from "yahoo-finance2";
 const yahooFinance = new YahooFinance();
 
@@ -1562,19 +1563,49 @@ async function startServer() {
         : parseFloat(monthly_contribution) || 0;
     const isCompounded = req.body?.is_compounded ?? true;
 
-    const simulation = buildOptimizationSimulation(
-      tickers,
-      inv,
-      risk,
-      horizon,
-      monthly,
-      isCompounded
-    );
+    const pythonProcess = spawn('python3', ['optimizer.py']);
+    let output = '';
+    let errorOutput = '';
 
-    res.json({
-      success: true,
-      data: simulation,
+    pythonProcess.stdout.on('data', (chunk) => {
+      output += chunk.toString();
     });
+
+    pythonProcess.stderr.on('data', (chunk) => {
+      errorOutput += chunk.toString();
+    });
+
+    pythonProcess.on('close', (code) => {
+      if (code !== 0) {
+        console.error("Python script error:", errorOutput);
+        return res.status(500).json({ success: false, detail: "Optimization failed" });
+      }
+
+      try {
+        const result = JSON.parse(output);
+        if (!result.success) {
+          return res.status(500).json({ success: false, detail: result.detail });
+        }
+        res.json({
+          success: true,
+          data: result.data,
+        });
+      } catch (err) {
+        console.error("Failed to parse Python output:", output);
+        res.status(500).json({ success: false, detail: "Invalid optimizer output" });
+      }
+    });
+
+    // Send input params to Python
+    pythonProcess.stdin.write(JSON.stringify({
+      tickers,
+      investment: inv,
+      risk_tolerance: risk,
+      time_horizon_years: horizon,
+      monthly_contribution: monthly,
+      is_compounded: isCompounded
+    }));
+    pythonProcess.stdin.end();
   });
 
   app.get("/api/backtest/results", async (req, res) => {

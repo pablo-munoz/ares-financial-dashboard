@@ -1,21 +1,19 @@
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { Asset, RiskData, PriceUpdate, IndexData, FrontierData, BacktestData, SavedPortfolio, SavedAlphaTrade } from './types';
+import { Asset, RiskData, PriceUpdate, IndexData, FrontierData, BacktestData, SavedPortfolio, SavedAlphaTrade, SavedWallet } from './types';
 import { Sidebar } from './components/Sidebar';
 import { DashboardOverview } from './components/DashboardOverview';
 import { AssetSelection } from './components/AssetSelection';
-import { RiskAnalysis } from './components/RiskAnalysis';
-import { EfficientFrontier } from './components/EfficientFrontier';
 import { Backtesting } from './components/Backtesting';
 import { IndicesSearch } from './components/IndicesSearch';
 import { VeoAnimation } from './components/VeoAnimation';
 import { Polymarket } from './components/Polymarket';
-import { AlphaBacktest } from './components/AlphaBacktest';
 import { SavedPortfolios } from './components/SavedPortfolios';
 import { SavedTrades } from './components/SavedTrades';
 
 const STORAGE_KEY = 'ares_saved_portfolios';
 const TRADES_STORAGE_KEY = 'ares_saved_trades';
+const WALLETS_STORAGE_KEY = 'ares_saved_wallets';
 
 function loadSaved(): SavedPortfolio[] {
   try {
@@ -41,6 +39,19 @@ function loadSavedTrades(): SavedAlphaTrade[] {
 
 function persistSavedTrades(trades: SavedAlphaTrade[]) {
   localStorage.setItem(TRADES_STORAGE_KEY, JSON.stringify(trades));
+}
+
+function loadSavedWallets(): SavedWallet[] {
+  try {
+    const raw = localStorage.getItem(WALLETS_STORAGE_KEY);
+    return raw ? JSON.parse(raw) : [];
+  } catch {
+    return [];
+  }
+}
+
+function persistSavedWallets(wallets: SavedWallet[]) {
+  localStorage.setItem(WALLETS_STORAGE_KEY, JSON.stringify(wallets));
 }
 
 export default function App() {
@@ -150,6 +161,7 @@ export default function App() {
       entryPrices,
       optimization: result.optimization,
       backtest: result.backtest,
+      monthlyReturns: result.monthlyReturns,
     };
     const updated = [newEntry, ...savedPortfolios];
     setSavedPortfolios(updated);
@@ -185,6 +197,22 @@ export default function App() {
     persistSavedTrades(updated);
   };
 
+  const [savedWallets, setSavedWallets] = useState<SavedWallet[]>(loadSavedWallets());
+
+  const handleSaveWallet = (wallet: SavedWallet) => {
+    // Prevent duplicates by address
+    if (savedWallets.some(w => w.address === wallet.address)) return;
+    const updated = [wallet, ...savedWallets];
+    setSavedWallets(updated);
+    persistSavedWallets(updated);
+  };
+
+  const handleDeleteWallet = (id: string) => {
+    const updated = savedWallets.filter(w => w.id !== id);
+    setSavedWallets(updated);
+    persistSavedWallets(updated);
+  };
+
   return (
     <div className="flex min-h-screen">
       <Sidebar activeTab={activeTab} setActiveTab={setActiveTab} />
@@ -205,11 +233,12 @@ export default function App() {
                 vix={vix}
                 optimizationResult={optimizationResult}
                 setOptimizationResult={setOptimizationResult}
-                onNavigateAlphaBacktest={() => setActiveTab('alphaBacktest')}
-                onNavigateRiskAnalysis={() => setActiveTab('risk')}
+                onNavigateAlphaBacktest={() => setActiveTab('polymarket')}
                 onSavePortfolio={handleSavePortfolio}
                 savedPortfolios={savedPortfolios}
                 onLoadPortfolio={handleLoadPortfolio}
+                riskData={riskData}
+                frontierData={frontierData}
               />
             )}
             {activeTab === 'saved' && (
@@ -227,16 +256,15 @@ export default function App() {
                 toggleAsset={toggleAsset}
               />
             )}
-            {activeTab === 'risk' && <RiskAnalysis riskData={riskData} savedPortfolios={savedPortfolios} />}
-            {activeTab === 'frontier' && <EfficientFrontier data={frontierData} savedPortfolios={savedPortfolios} />}
-            {activeTab === 'backtest' && <Backtesting data={backtestData} />}
-            {activeTab === 'alphaBacktest' && <AlphaBacktest />}
+            {activeTab === 'backtest' && <Backtesting data={backtestData} savedPortfolios={savedPortfolios} />}
             {activeTab === 'indices' && <IndicesSearch indices={indices} />}
-            {activeTab === 'polymarket' && <Polymarket onSaveTrade={handleSaveTrade} />}
+            {activeTab === 'polymarket' && <Polymarket onSaveTrade={handleSaveTrade} onSaveWallet={handleSaveWallet} />}
             {activeTab === 'savedTrades' && (
               <SavedTrades
                 trades={savedTrades}
-                onDelete={handleDeleteTrade}
+                wallets={savedWallets}
+                onDeleteTrade={handleDeleteTrade}
+                onDeleteWallet={handleDeleteWallet}
                 onNavigatePolymarket={() => setActiveTab('polymarket')}
               />
             )}

@@ -18,14 +18,16 @@ import {
   Bookmark
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
-import { PolymarketData, SavedAlphaTrade } from '../types';
+import { PolymarketData, SavedAlphaTrade, SavedWallet } from '../types';
+import { AlphaBacktest } from './AlphaBacktest';
 import { cn } from '../lib/utils';
 
 interface PolymarketProps {
   onSaveTrade?: (trade: SavedAlphaTrade) => void;
+  onSaveWallet?: (wallet: SavedWallet) => void;
 }
 
-export const Polymarket: React.FC<PolymarketProps> = ({ onSaveTrade }) => {
+export const Polymarket: React.FC<PolymarketProps> = ({ onSaveTrade, onSaveWallet }) => {
   const [data, setData] = useState<PolymarketData | null>(null);
   const [loading, setLoading] = useState(true);
   const [isRefreshingAlpha, setIsRefreshingAlpha] = useState(false);
@@ -35,6 +37,7 @@ export const Polymarket: React.FC<PolymarketProps> = ({ onSaveTrade }) => {
   const [selectedMarket, setSelectedMarket] = useState<any>(null);
   const [bankroll, setBankroll] = useState(10000);
   const [isPanelOpen, setIsPanelOpen] = useState(false);
+  const [view, setView] = useState<'live' | 'backtest'>('live');
 
   useEffect(() => {
     let isMounted = true;
@@ -139,6 +142,27 @@ export const Polymarket: React.FC<PolymarketProps> = ({ onSaveTrade }) => {
           />
         </div>
 
+        <div className="flex bg-slate-100 p-1 rounded-2xl shrink-0">
+          <button
+            onClick={() => setView('live')}
+            className={cn(
+              "px-6 py-2.5 text-xs font-black uppercase tracking-widest rounded-xl transition-all",
+              view === 'live' ? "bg-white text-slate-900 shadow-sm" : "text-slate-400 hover:text-slate-600"
+            )}
+          >
+            Live Signals
+          </button>
+          <button
+            onClick={() => setView('backtest')}
+            className={cn(
+              "px-6 py-2.5 text-xs font-black uppercase tracking-widest rounded-xl transition-all",
+              view === 'backtest' ? "bg-white text-slate-900 shadow-sm" : "text-slate-400 hover:text-slate-600"
+            )}
+          >
+            Backtest Engine
+          </button>
+        </div>
+
         <div className="flex items-center gap-6">
           <div className="flex items-center gap-2">
             <div className={cn(
@@ -152,7 +176,7 @@ export const Polymarket: React.FC<PolymarketProps> = ({ onSaveTrade }) => {
 
           <button
             onClick={refreshAlpha}
-            disabled={isRefreshingAlpha}
+            disabled={isRefreshingAlpha || view === 'backtest'} // Disable refresh in backtest view
             className="px-6 py-3 bg-ares-green text-slate-900 font-black text-xs uppercase tracking-widest rounded-xl hover:bg-ares-dark-green transition-all shadow-lg shadow-ares-green/20 flex items-center gap-2 disabled:opacity-60 disabled:cursor-not-allowed"
           >
             {isRefreshingAlpha ? <Loader2 className="w-4 h-4 animate-spin" /> : <Zap className="w-4 h-4" />}
@@ -161,294 +185,336 @@ export const Polymarket: React.FC<PolymarketProps> = ({ onSaveTrade }) => {
         </div>
       </header>
 
-      {/* Alpha Signals Grid */}
-      <section className="space-y-4">
-        <div className="flex items-center gap-2 px-2">
-          <TrendingUp className="w-5 h-5 text-ares-green" />
-          <h2 className="text-xl font-bold font-display">Alpha Signals</h2>
-          <button
-            onClick={refreshAlpha}
-            disabled={isRefreshingAlpha}
-            className="ml-auto text-xs font-black uppercase tracking-widest text-ares-green hover:underline disabled:opacity-60 disabled:cursor-not-allowed"
-          >
-            Refresh signals
-          </button>
-        </div>
+      {view === 'backtest' && (
+        <AlphaBacktest />
+      )}
 
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {filteredSignals.map((signal, i) => (
-            <motion.div
-              key={signal.id}
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: i * 0.1 }}
-              className="group bg-white p-6 rounded-3xl border border-slate-100 shadow-sm hover:shadow-xl transition-all cursor-pointer"
-              onClick={() => {
-                setSelectedMarket(signal);
-                setIsPanelOpen(true);
-              }}
-            >
-              <div className="flex justify-between items-start mb-4">
-                <span className="px-3 py-1 bg-emerald-50 text-emerald-600 text-[10px] font-black rounded-full uppercase tracking-widest">
-                  EV+ {signal.ev}%
-                </span>
-                <a
-                  href={`https://polymarket.com/event/${signal.eventSlug ?? signal.id}`}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="p-2 bg-slate-50 rounded-xl group-hover:bg-ares-green/10 transition-colors"
-                  onClick={(e) => e.stopPropagation()}
-                >
-                  <ArrowUpRight className="w-4 h-4 text-slate-400 group-hover:text-ares-green" />
-                </a>
-                <button
-                  className="p-2 bg-slate-50 rounded-xl hover:bg-amber-50 transition-colors"
-                  title="Save trade"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    if (onSaveTrade) {
-                      onSaveTrade({
-                        id: crypto.randomUUID(),
-                        savedAt: new Date().toISOString(),
-                        signal,
-                        bankroll,
-                        stakeAmount: bankroll * (signal.kellyStake / 100)
-                      });
-                    }
+      {view === 'live' && (
+        <>
+          {/* Alpha Signals Grid */}
+          <section className="space-y-4">
+            <div className="flex items-center gap-2 px-2">
+              <TrendingUp className="w-5 h-5 text-ares-green" />
+              <h2 className="text-xl font-bold font-display">Alpha Signals</h2>
+              <button
+                onClick={refreshAlpha}
+                disabled={isRefreshingAlpha}
+                className="ml-auto text-xs font-black uppercase tracking-widest text-ares-green hover:underline disabled:opacity-60 disabled:cursor-not-allowed"
+              >
+                Refresh signals
+              </button>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+              {filteredSignals.map((signal, i) => (
+                <motion.div
+                  key={signal.id}
+                  initial={{ opacity: 0, y: 20 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ delay: i * 0.1 }}
+                  className="group bg-white p-6 rounded-3xl border border-slate-100 shadow-sm hover:shadow-xl transition-all cursor-pointer"
+                  onClick={() => {
+                    setSelectedMarket(signal);
+                    setIsPanelOpen(true);
                   }}
                 >
-                  <Bookmark className="w-4 h-4 text-slate-400 hover:text-amber-500" />
-                </button>
-              </div>
-
-              <h3 className="font-bold text-slate-900 mb-4 line-clamp-2 min-h-[3rem]">{signal.marketName}</h3>
-
-              <div className="grid grid-cols-2 gap-4 pt-4 border-t border-slate-50">
-                <div>
-                  <div className="flex flex-col">
-                    <div className="flex items-center gap-1.5 mb-1 text-slate-400">
-                      <p className="text-xs font-black tracking-widest uppercase">Fair Value</p>
-                      <HelpCircle className="w-3 h-3 text-slate-300" />
-                    </div>
-                    <p className="text-lg font-black text-ares-green">{(signal.fairValue * 100).toFixed(1)}%</p>
-                  </div>
-                </div>
-                <div>
-                  <div className="flex flex-col">
-                    <div className="flex items-center gap-1.5 mb-1 text-slate-400">
-                      <p className="text-xs font-black tracking-widest uppercase">Market Price</p>
-                      <HelpCircle className="w-3 h-3 text-slate-300" />
-                    </div>
-                    <p className="text-lg font-black text-slate-900">{(signal.marketPrice * 100).toFixed(1)}%</p>
-                  </div>
-                </div>
-              </div>
-
-              <div className="mt-4 p-3 bg-slate-900 rounded-2xl flex items-center justify-between">
-                <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">
-                  Kelly Stake
-                  <span
-                    className="ml-1 text-[11px] font-bold text-slate-500 cursor-help"
-                    title="Suggested % of bankroll to stake using a Kelly-style sizing based on the edge between fair value and market price, adjusted for volatility and capped at 10%."
-                  >
-                    ?
-                  </span>
-                </span>
-                <span className="text-sm font-black text-ares-green">{signal.kellyStake}%</span>
-              </div>
-            </motion.div>
-          ))}
-        </div>
-      </section>
-
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
-        {/* Whale/Insider Terminal */}
-        <div className="lg:col-span-8 space-y-4">
-          <div className="flex items-center gap-2 px-2">
-            <Users className="w-5 h-5 text-ares-green" />
-            <h2 className="text-xl font-bold font-display">Insider Terminal</h2>
-            <span className="ml-3 text-[10px] font-black uppercase tracking-widest text-slate-400">
-              {data.lastUpdated
-                ? `Updated ${new Date(data.lastUpdated).toLocaleTimeString()}`
-                : 'Snapshot'}
-            </span>
-            <button
-              onClick={refreshInsiders}
-              disabled={isRefreshingInsiders}
-              className="ml-auto text-xs font-black uppercase tracking-widest text-ares-green hover:underline disabled:opacity-60 disabled:cursor-not-allowed flex items-center gap-1"
-            >
-              {isRefreshingInsiders ? (
-                <Loader2 className="w-3 h-3 animate-spin" />
-              ) : null}
-              Refresh insiders
-            </button>
-          </div>
-
-          <div className="bg-white rounded-3xl border border-slate-100 shadow-sm overflow-x-auto">
-            <table className="w-full text-left border-collapse min-w-[1000px]">
-              <thead>
-                <tr className="bg-slate-50 border-bottom border-slate-100">
-                  <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest w-[200px]">Wallet Address</th>
-                  <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest w-[100px]">Score</th>
-                  <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest w-[130px]">Label</th>
-                  <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">Reasons</th>
-                  <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest w-[100px]">Win Rate</th>
-                  <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">Top Market</th>
-                  <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest text-right w-[120px]">Action</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-50">
-                {data.insiders.map((insider) => (
-                  <tr key={insider.address} className="hover:bg-slate-50/50 transition-colors">
-                    <td className="px-6 py-4">
-                      <a
-                        href={`https://polymarket.com/profile/${insider.address}`}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="flex items-center gap-2 group/link w-fit"
-                        title={insider.address}
-                      >
-                        <div className="w-8 h-8 rounded-full bg-slate-100 flex items-center justify-center group-hover/link:bg-ares-green/10 transition-colors shrink-0">
-                          <Wallet className="w-4 h-4 text-slate-400 group-hover/link:text-ares-green transition-colors" />
-                        </div>
-                        <span className="font-mono text-xs font-bold text-slate-600 group-hover/link:text-ares-green truncate max-w-[120px]">
-                          {insider.address}
-                        </span>
-                        <ExternalLink className="w-3 h-3 text-slate-300 group-hover/link:text-ares-green transition-colors opacity-0 group-hover/link:opacity-100 shrink-0" />
-                      </a>
-                    </td>
-                    <td className="px-6 py-4">
-                      <div className="flex items-center gap-1.5">
-                        <span className={cn(
-                          "text-sm font-black",
-                          insider.score >= 75 ? "text-rose-500" :
-                            insider.score >= 50 ? "text-amber-500" :
-                              "text-slate-400"
-                        )}>
-                          {insider.score}%
-                        </span>
-                        {insider.trend === 'up' && <span className="text-[10px] font-black text-ares-green" title="Score rising">↑</span>}
-                        {insider.trend === 'down' && <span className="text-[10px] font-black text-rose-400" title="Score falling">↓</span>}
-                        {insider.trend === 'stable' && <span className="text-[10px] font-black text-slate-300" title="Score stable">→</span>}
-                        {insider.trend === 'new' && <span className="text-[10px] font-black text-ares-green" title="First appearance">★</span>}
-                      </div>
-                    </td>
-                    <td className="px-6 py-4">
-                      <span className={cn(
-                        "text-[10px] font-black uppercase tracking-widest px-2 py-1 rounded-full whitespace-nowrap",
-                        insider.label === 'High Suspicion'
-                          ? "bg-rose-50 text-rose-600"
-                          : insider.label === 'Moderate'
-                            ? "bg-amber-50 text-amber-600"
-                            : "bg-slate-100 text-slate-500"
-                      )}>
-                        {insider.label}
-                      </span>
-                    </td>
-                    <td className="px-6 py-4">
-                      <div className="flex flex-wrap gap-1 min-w-[200px]">
-                        {insider.reasons.slice(0, 3).map((r) => (
-                          <span
-                            key={r}
-                            className="text-[9px] font-black uppercase tracking-widest px-2 py-0.5 rounded-full bg-slate-50 text-slate-500 whitespace-nowrap"
-                          >
-                            {r}
-                          </span>
-                        ))}
-                        {insider.reasons.length > 3 && (
-                          <span className="text-[9px] font-black text-slate-300">+{insider.reasons.length - 3}</span>
-                        )}
-                      </div>
-                    </td>
-                    <td className="px-6 py-4">
-                      {insider.winRate !== undefined ? (
-                        <span className={cn(
-                          "text-xs font-black",
-                          insider.winRate >= 0.65 ? "text-ares-green" :
-                            insider.winRate >= 0.50 ? "text-slate-600" :
-                              "text-rose-400"
-                        )}>
-                          {Math.round(insider.winRate * 100)}%
-                        </span>
-                      ) : (
-                        <span className="text-xs text-slate-300 font-medium">—</span>
-                      )}
-                    </td>
-                    <td className="px-6 py-4">
-                      <span className="text-[10px] font-medium text-slate-500 line-clamp-2 min-w-[150px]">
-                        {insider.topMarket ?? '—'}
-                      </span>
-                    </td>
-                    <td className="px-6 py-4 text-right">
-                      <button className="px-3 py-1.5 bg-slate-900 text-white text-[9px] font-black uppercase tracking-widest rounded-lg hover:bg-slate-800 transition-all flex items-center gap-1.5 ml-auto whitespace-nowrap">
-                        <UserPlus className="w-2.5 h-2.5" /> Follow
-                      </button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
-
-        {/* Whale Activity Feed */}
-        <div className="lg:col-span-4 space-y-4">
-          <div className="flex items-center gap-2 px-2">
-            <Activity className="w-5 h-5 text-ares-green" />
-            <h2 className="text-xl font-bold font-display">Whale Feed</h2>
-          </div>
-
-          <div className="bg-slate-900 rounded-3xl p-6 shadow-xl shadow-slate-900/20 text-white min-h-[400px]">
-            <div className="space-y-6">
-              {data.whaleFeed.map((trade, i) => (
-                <motion.div
-                  key={trade.id}
-                  initial={{ opacity: 0, x: 20 }}
-                  animate={{ opacity: 1, x: 0 }}
-                  transition={{ delay: i * 0.1 }}
-                  className="group relative pl-4 border-l-2 border-white/10"
-                >
-                  <div className="flex justify-between items-start mb-1">
-                    <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">{trade.time}</span>
-                    <span className={cn(
-                      "text-[10px] font-black px-2 py-0.5 rounded-full uppercase tracking-widest",
-                      trade.side === 'YES' ? "bg-emerald-500/20 text-emerald-400" : "bg-rose-500/20 text-rose-400"
-                    )}>
-                      {trade.side}
+                  <div className="flex justify-between items-start mb-4">
+                    <span className="px-3 py-1 bg-emerald-50 text-emerald-600 text-[10px] font-black rounded-full uppercase tracking-widest">
+                      EV+ {signal.ev}%
                     </span>
+                    <a
+                      href={`https://polymarket.com/event/${signal.eventSlug ?? signal.id}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="p-2 bg-slate-50 rounded-xl group-hover:bg-ares-green/10 transition-colors"
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      <ArrowUpRight className="w-4 h-4 text-slate-400 group-hover:text-ares-green" />
+                    </a>
+                    <button
+                      className="p-2 bg-slate-50 rounded-xl hover:bg-amber-50 transition-colors"
+                      title="Save trade"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        if (onSaveTrade) {
+                          onSaveTrade({
+                            id: crypto.randomUUID(),
+                            savedAt: new Date().toISOString(),
+                            signal,
+                            bankroll,
+                            stakeAmount: bankroll * (signal.kellyStake / 100)
+                          });
+                        }
+                      }}
+                    >
+                      <Bookmark className="w-4 h-4 text-slate-400 hover:text-amber-500" />
+                    </button>
                   </div>
 
-                  {trade.slug ? (
-                    <a
-                      href={`https://polymarket.com/event/${trade.slug}`}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="block text-sm font-bold mb-1 hover:text-ares-green transition-colors leading-snug"
-                    >
-                      {trade.market}
-                    </a>
-                  ) : (
-                    <p className="text-sm font-bold mb-1 leading-snug">{trade.market}</p>
-                  )}
+                  <h3 className="font-bold text-slate-900 mb-4 line-clamp-2 min-h-[3rem]">{signal.marketName}</h3>
 
-                  <div className="flex items-center justify-between">
-                    <a
-                      href={`https://polymarket.com/profile/${trade.address}`}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="text-xs text-slate-400 font-mono hover:text-ares-green transition-colors flex items-center gap-1.5"
-                    >
-                      <User className="w-3 h-3 text-slate-600" />
-                      {trade.address}
-                    </a>
-                    <span className="text-xs font-black text-ares-green">${trade.amount.toLocaleString()}</span>
+                  <div className="grid grid-cols-2 gap-4 pt-4 border-t border-slate-50">
+                    <div>
+                      <div className="flex flex-col">
+                        <div className="flex items-center gap-1.5 mb-1 text-slate-400">
+                          <p className="text-xs font-black tracking-widest uppercase">Fair Value</p>
+                          <HelpCircle className="w-3 h-3 text-slate-300" />
+                        </div>
+                        <p className="text-lg font-black text-ares-green">{(signal.fairValue * 100).toFixed(1)}%</p>
+                      </div>
+                    </div>
+                    <div>
+                      <div className="flex flex-col">
+                        <div className="flex items-center gap-1.5 mb-1 text-slate-400">
+                          <p className="text-xs font-black tracking-widest uppercase">Market Price</p>
+                          <HelpCircle className="w-3 h-3 text-slate-300" />
+                        </div>
+                        <p className="text-lg font-black text-slate-900">{(signal.marketPrice * 100).toFixed(1)}%</p>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="mt-4 p-3 bg-slate-900 rounded-2xl flex items-center justify-between">
+                    <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">
+                      Kelly Stake
+                      <span
+                        className="ml-1 text-[11px] font-bold text-slate-500 cursor-help"
+                        title="Suggested % of bankroll to stake using a Kelly-style sizing based on the edge between fair value and market price, adjusted for volatility and capped at 10%."
+                      >
+                        ?
+                      </span>
+                    </span>
+                    <span className="text-sm font-black text-ares-green">{signal.kellyStake}%</span>
                   </div>
                 </motion.div>
               ))}
             </div>
+          </section>
+
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
+            {/* Whale/Insider Terminal */}
+            <div className="lg:col-span-8 space-y-4">
+              <div className="flex items-center gap-2 px-2">
+                <Users className="w-5 h-5 text-ares-green" />
+                <h2 className="text-xl font-bold font-display">Insider Terminal</h2>
+                <span className="ml-3 text-[10px] font-black uppercase tracking-widest text-slate-400">
+                  {data.lastUpdated
+                    ? `Updated ${new Date(data.lastUpdated).toLocaleTimeString()}`
+                    : 'Snapshot'}
+                </span>
+                <button
+                  onClick={refreshInsiders}
+                  disabled={isRefreshingInsiders}
+                  className="ml-auto text-xs font-black uppercase tracking-widest text-ares-green hover:underline disabled:opacity-60 disabled:cursor-not-allowed flex items-center gap-1"
+                >
+                  {isRefreshingInsiders ? (
+                    <Loader2 className="w-3 h-3 animate-spin" />
+                  ) : null}
+                  Refresh insiders
+                </button>
+              </div>
+
+              <div className="bg-white rounded-3xl border border-slate-100 shadow-sm overflow-x-auto">
+                <table className="w-full text-left border-collapse min-w-[1000px]">
+                  <thead>
+                    <tr className="bg-slate-50 border-bottom border-slate-100">
+                      <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest w-[200px]">Wallet Address</th>
+                      <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest w-[100px]">Score</th>
+                      <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest w-[130px]">Label</th>
+                      <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">Reasons</th>
+                      <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest w-[100px]">Win Rate</th>
+                      <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">Top Market</th>
+                      <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest text-right w-[120px]">Action</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-50">
+                    {data.insiders.map((insider) => (
+                      <tr key={insider.address} className="hover:bg-slate-50/50 transition-colors">
+                        <td className="px-6 py-4">
+                          <a
+                            href={`https://polymarket.com/profile/${insider.address}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="flex items-center gap-2 group/link w-fit"
+                            title={insider.address}
+                          >
+                            <div className="w-8 h-8 rounded-full bg-slate-100 flex items-center justify-center group-hover/link:bg-ares-green/10 transition-colors shrink-0">
+                              <Wallet className="w-4 h-4 text-slate-400 group-hover/link:text-ares-green transition-colors" />
+                            </div>
+                            <span className="font-mono text-xs font-bold text-slate-600 group-hover/link:text-ares-green truncate max-w-[120px]">
+                              {insider.address}
+                            </span>
+                            <ExternalLink className="w-3 h-3 text-slate-300 group-hover/link:text-ares-green transition-colors opacity-0 group-hover/link:opacity-100 shrink-0" />
+                          </a>
+                        </td>
+                        <td className="px-6 py-4">
+                          <div className="flex items-center gap-1.5">
+                            <span className={cn(
+                              "text-sm font-black",
+                              insider.score >= 75 ? "text-rose-500" :
+                                insider.score >= 50 ? "text-amber-500" :
+                                  "text-slate-400"
+                            )}>
+                              {insider.score}%
+                            </span>
+                            {insider.trend === 'up' && <span className="text-[10px] font-black text-ares-green" title="Score rising">↑</span>}
+                            {insider.trend === 'down' && <span className="text-[10px] font-black text-rose-400" title="Score falling">↓</span>}
+                            {insider.trend === 'stable' && <span className="text-[10px] font-black text-slate-300" title="Score stable">→</span>}
+                            {insider.trend === 'new' && <span className="text-[10px] font-black text-ares-green" title="First appearance">★</span>}
+                          </div>
+                        </td>
+                        <td className="px-6 py-4">
+                          <span className={cn(
+                            "text-[10px] font-black uppercase tracking-widest px-2 py-1 rounded-full whitespace-nowrap",
+                            insider.label === 'High Suspicion'
+                              ? "bg-rose-50 text-rose-600"
+                              : insider.label === 'Moderate'
+                                ? "bg-amber-50 text-amber-600"
+                                : "bg-slate-100 text-slate-500"
+                          )}>
+                            {insider.label}
+                          </span>
+                        </td>
+                        <td className="px-6 py-4">
+                          <div className="flex flex-wrap gap-1 min-w-[200px]">
+                            {insider.reasons.slice(0, 3).map((r) => (
+                              <span
+                                key={r}
+                                className="text-[9px] font-black uppercase tracking-widest px-2 py-0.5 rounded-full bg-slate-50 text-slate-500 whitespace-nowrap"
+                              >
+                                {r}
+                              </span>
+                            ))}
+                            {insider.reasons.length > 3 && (
+                              <span className="text-[9px] font-black text-slate-300">+{insider.reasons.length - 3}</span>
+                            )}
+                          </div>
+                        </td>
+                        <td className="px-6 py-4">
+                          {insider.winRate !== undefined ? (
+                            <span className={cn(
+                              "text-xs font-black",
+                              insider.winRate >= 0.65 ? "text-ares-green" :
+                                insider.winRate >= 0.50 ? "text-slate-600" :
+                                  "text-rose-400"
+                            )}>
+                              {Math.round(insider.winRate * 100)}%
+                            </span>
+                          ) : (
+                            <span className="text-xs text-slate-300 font-medium">—</span>
+                          )}
+                        </td>
+                        <td className="px-6 py-4">
+                          <span className="text-[10px] font-medium text-slate-500 line-clamp-2 min-w-[150px]">
+                            {insider.topMarket ?? '—'}
+                          </span>
+                        </td>
+                        <td className="px-6 py-4 text-right">
+                          <button
+                            title="Save wallet"
+                            className="px-3 py-1.5 bg-slate-50 text-slate-400 text-[9px] font-black uppercase tracking-widest rounded-lg hover:bg-amber-50 hover:text-amber-500 transition-all flex items-center gap-1.5 ml-auto whitespace-nowrap"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              if (onSaveWallet) {
+                                onSaveWallet({
+                                  id: insider.address,
+                                  savedAt: new Date().toISOString(),
+                                  address: insider.address,
+                                  source: 'insider',
+                                  notes: insider.label
+                                });
+                              }
+                            }}
+                          >
+                            <Bookmark className="w-3 h-3" /> Save
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            {/* Whale Activity Feed */}
+            <div className="lg:col-span-4 space-y-4">
+              <div className="flex items-center gap-2 px-2">
+                <Activity className="w-5 h-5 text-ares-green" />
+                <h2 className="text-xl font-bold font-display">Whale Feed</h2>
+              </div>
+
+              <div className="bg-slate-900 rounded-3xl p-6 shadow-xl shadow-slate-900/20 text-white min-h-[400px]">
+                <div className="space-y-6">
+                  {data.whaleFeed.map((trade, i) => (
+                    <motion.div
+                      key={trade.id}
+                      initial={{ opacity: 0, x: 20 }}
+                      animate={{ opacity: 1, x: 0 }}
+                      transition={{ delay: i * 0.1 }}
+                      className="group relative pl-4 border-l-2 border-white/10"
+                    >
+                      <div className="flex justify-between items-start mb-1">
+                        <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">{trade.time}</span>
+                        <span className={cn(
+                          "text-[10px] font-black px-2 py-0.5 rounded-full uppercase tracking-widest",
+                          trade.side === 'YES' ? "bg-emerald-500/20 text-emerald-400" : "bg-rose-500/20 text-rose-400"
+                        )}>
+                          {trade.side}
+                        </span>
+                      </div>
+
+                      {trade.slug ? (
+                        <a
+                          href={`https://polymarket.com/event/${trade.slug}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="block text-sm font-bold mb-1 hover:text-ares-green transition-colors leading-snug"
+                        >
+                          {trade.market}
+                        </a>
+                      ) : (
+                        <p className="text-sm font-bold mb-1 leading-snug">{trade.market}</p>
+                      )}
+
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          <a
+                            href={`https://polymarket.com/profile/${trade.address}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-xs text-slate-400 font-mono hover:text-ares-green transition-colors flex items-center gap-1.5"
+                          >
+                            <User className="w-3 h-3 text-slate-600" />
+                            {trade.address}
+                          </a>
+                          <button
+                            title="Save wallet"
+                            className="p-1 rounded bg-white/5 text-slate-400 hover:text-amber-500 hover:bg-amber-500/10 transition-colors"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              if (onSaveWallet) {
+                                onSaveWallet({
+                                  id: trade.address,
+                                  savedAt: new Date().toISOString(),
+                                  address: trade.address,
+                                  source: 'whale',
+                                });
+                              }
+                            }}
+                          >
+                            <Bookmark className="w-3 h-3" />
+                          </button>
+                        </div>
+                        <span className="text-xs font-black text-ares-green">${trade.amount.toLocaleString()}</span>
+                      </div>
+                    </motion.div>
+                  ))}
+                </div>
+              </div>
+            </div>
           </div>
-        </div>
-      </div>
+        </>
+      )}
 
       {/* Execution & Risk Panel */}
       <AnimatePresence>

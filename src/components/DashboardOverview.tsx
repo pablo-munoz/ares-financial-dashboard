@@ -9,7 +9,9 @@ import {
   ChevronRight,
   PieChart as PieChartIcon,
   Activity,
-  Bookmark
+  Bookmark,
+  ShieldAlert,
+  LayoutDashboard
 } from 'lucide-react';
 import {
   LineChart,
@@ -27,6 +29,8 @@ import {
 } from 'recharts';
 import { motion, AnimatePresence } from 'motion/react';
 import { Asset, SavedPortfolio } from '../types';
+import { RiskAnalysis } from './RiskAnalysis';
+import { EfficientFrontier } from './EfficientFrontier';
 import { cn } from '../lib/utils';
 
 interface DashboardOverviewProps {
@@ -39,6 +43,8 @@ interface DashboardOverviewProps {
   onSavePortfolio?: (name: string, result: any, investment: number) => void;
   savedPortfolios?: SavedPortfolio[];
   onLoadPortfolio?: (portfolio: SavedPortfolio) => void;
+  riskData?: any;
+  frontierData?: any;
 }
 
 export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
@@ -50,12 +56,16 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
   onNavigateRiskAnalysis,
   onSavePortfolio,
   savedPortfolios = [],
-  onLoadPortfolio
+  onLoadPortfolio,
+  riskData,
+  frontierData
 }) => {
   const [isOptimizing, setIsOptimizing] = useState(false);
   const [engineMode, setEngineMode] = useState<'manual' | 'auto'>('manual');
   const [saveMode, setSaveMode] = useState(false);
   const [saveName, setSaveName] = useState('');
+  const [view, setView] = useState<'overview' | 'risk' | 'frontier'>('overview');
+
   const [formData, setFormData] = useState({
     tickers: ['AAPL', 'MSFT', 'GOOGL', 'AMZN'],
     investment: 100000,
@@ -207,483 +217,524 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
 
   return (
     <div className="space-y-8 animate-in fade-in duration-700">
-      <header className="flex flex-col md:flex-row md:items-end justify-between gap-4">
-        <div>
-          <h1 className="text-3xl font-extrabold text-slate-900 font-display tracking-tight mb-2">Market Intelligence</h1>
-          <p className="text-slate-500">Real-time overview of your portfolio performance and market trends.</p>
-        </div>
-        <div className="flex flex-col md:flex-row md:items-center gap-4">
-          <div className="relative">
-            <select
-              value=""
-              onChange={(e) => {
-                const id = e.target.value;
-                if (!id) return;
-                const portfolio = savedPortfolios.find(p => p.id === id);
-                if (portfolio && onLoadPortfolio) {
-                  onLoadPortfolio(portfolio);
-                }
-              }}
-              className="appearance-none bg-white border border-slate-200 pl-4 pr-10 py-1.5 rounded-xl text-xs font-bold uppercase tracking-widest text-slate-500 hover:bg-slate-50 hover:text-slate-900 transition-colors focus:outline-none focus:ring-2 focus:ring-ares-green cursor-pointer"
-            >
-              <option value="" disabled>Load Saved Portfolio...</option>
-              {savedPortfolios.length > 0 && <optgroup label="Saved Portfolios">
-                {savedPortfolios.map(p => (
-                  <option key={p.id} value={p.id}>{p.name}</option>
-                ))}
-              </optgroup>}
-            </select>
-            <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-3 text-slate-400">
-              <svg className="fill-current h-3 w-3" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20"><path d="M9.293 12.95l.707.707L15.657 8l-1.414-1.414L10 10.828 5.757 6.586 4.343 8z" /></svg>
-            </div>
-          </div>
-
-          <div className="flex items-center gap-2 text-xs font-black tracking-widest uppercase text-slate-400">
-            <span className="w-2 h-2 rounded-full bg-ares-green animate-pulse"></span>
-            Live Market Feed
-          </div>
-        </div>
-      </header>
-
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-        {stats.map((stat, i) => (
-          <motion.div
-            key={stat.label}
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: i * 0.1 }}
-            className="bg-white p-6 rounded-3xl border border-slate-100 shadow-sm hover:shadow-md transition-shadow"
-          >
-            <div className="flex items-center justify-between mb-4">
-              <div className={cn("p-2 rounded-xl text-white", stat.color)}>
-                <stat.icon className="w-5 h-5" />
-              </div>
-              <span className={cn(
-                "text-xs font-bold px-2 py-1 rounded-lg",
-                stat.change.startsWith('+') ? "bg-emerald-50 text-emerald-600" : "bg-slate-50 text-slate-600"
-              )}>
-                {stat.change}
-              </span>
-            </div>
-            <p className="text-sm font-medium text-slate-500 mb-1">{stat.label}</p>
-            <p className="text-2xl font-black text-slate-900 font-display">{stat.value}</p>
-          </motion.div>
-        ))}
+      {/* Tab Navigation */}
+      <div className="flex bg-slate-100 p-1 rounded-2xl shrink-0 w-fit">
+        <button
+          onClick={() => setView('overview')}
+          className={cn(
+            "px-6 py-2.5 text-xs font-black uppercase tracking-widest rounded-xl transition-all flex items-center gap-2",
+            view === 'overview' ? "bg-white text-slate-900 shadow-sm" : "text-slate-400 hover:text-slate-600"
+          )}
+        >
+          <LayoutDashboard className="w-4 h-4" />
+          Overview
+        </button>
+        <button
+          onClick={() => setView('risk')}
+          className={cn(
+            "px-6 py-2.5 text-xs font-black uppercase tracking-widest rounded-xl transition-all flex items-center gap-2",
+            view === 'risk' ? "bg-white text-slate-900 shadow-sm" : "text-slate-400 hover:text-slate-600"
+          )}
+        >
+          <ShieldAlert className="w-4 h-4" />
+          Risk Analysis
+        </button>
+        <button
+          onClick={() => setView('frontier')}
+          className={cn(
+            "px-6 py-2.5 text-xs font-black uppercase tracking-widest rounded-xl transition-all flex items-center gap-2",
+            view === 'frontier' ? "bg-white text-slate-900 shadow-sm" : "text-slate-400 hover:text-slate-600"
+          )}
+        >
+          <TrendingUp className="w-4 h-4" />
+          Efficient Frontier
+        </button>
       </div>
 
-      {/* Alpha Backtest teaser card */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-        <div className="lg:col-span-1 bg-white rounded-3xl border border-slate-100 p-6 shadow-sm flex flex-col justify-between">
-          <div className="flex items-center gap-3 mb-4">
-            <div className="p-2 bg-ares-green/10 rounded-xl">
-              <Activity className="w-5 h-5 text-ares-green" />
-            </div>
+      {view === 'risk' && <RiskAnalysis riskData={riskData} savedPortfolios={savedPortfolios} />}
+      {view === 'frontier' && <EfficientFrontier data={frontierData} savedPortfolios={savedPortfolios} />}
+
+      {view === 'overview' && (
+        <>
+          <header className="flex flex-col md:flex-row md:items-end justify-between gap-4">
             <div>
-              <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">
-                Polymarket Model
-              </p>
-              <h3 className="text-lg font-bold text-slate-900 font-display">
-                Alpha Backtesting Engine
-              </h3>
+              <h1 className="text-3xl font-extrabold text-slate-900 font-display tracking-tight mb-2">Market Intelligence</h1>
+              <p className="text-slate-500">Real-time overview of your portfolio performance and market trends.</p>
             </div>
-          </div>
-          <p className="text-sm text-slate-500 mb-4">
-            See how the insider-informed Polymarket alpha model would have performed historically —
-            equity curve, calibration, and virtual PnL on a $10k account.
-          </p>
-          <button
-            type="button"
-            onClick={onNavigateAlphaBacktest}
-            className="inline-flex items-center justify-between w-full px-4 py-3 rounded-2xl bg-slate-900 text-white text-xs font-black uppercase tracking-widest hover:bg-slate-800 transition"
-          >
-            Open Alpha Backtest
-            <ChevronRight className="w-4 h-4" />
-          </button>
-        </div>
-      </div>
-
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-        {/* Portfolio Engine Form */}
-        <div className="bg-white rounded-3xl border border-slate-100 p-8 shadow-sm">
-          <div className="flex items-center gap-3 mb-6">
-            <div className="p-2 bg-ares-green/10 rounded-xl">
-              <Calculator className="w-5 h-5 text-ares-green" />
-            </div>
-            <h3 className="text-lg font-bold text-slate-900 font-display">Portfolio Engine</h3>
-          </div>
-
-          <form onSubmit={handleOptimize} className="space-y-5">
-            <div className="flex gap-2 mb-2">
-              <button
-                type="button"
-                onClick={() => setEngineMode('manual')}
-                className={cn(
-                  'flex-1 px-3 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest border',
-                  engineMode === 'manual'
-                    ? 'bg-slate-900 text-white border-slate-900'
-                    : 'bg-slate-50 text-slate-500 border-slate-100'
-                )}
-              >
-                I choose tickers
-              </button>
-              <button
-                type="button"
-                onClick={() => setEngineMode('auto')}
-                className={cn(
-                  'flex-1 px-3 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest border',
-                  engineMode === 'auto'
-                    ? 'bg-ares-green text-slate-900 border-ares-green'
-                    : 'bg-slate-50 text-slate-500 border-slate-100'
-                )}
-              >
-                Suggest for me
-              </button>
-            </div>
-
-            {engineMode === 'manual' && (
-              <div className="space-y-2">
-                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">
-                  Tickers (Comma separated)
-                </label>
-                <input
-                  type="text"
-                  value={formData.tickers.join(', ')}
-                  onChange={(e) =>
-                    setFormData({
-                      ...formData,
-                      tickers: e.target.value
-                        .split(',')
-                        .map((t) => t.trim().toUpperCase())
-                        .filter(Boolean),
-                    })
-                  }
-                  className="w-full px-4 py-3 rounded-xl border border-slate-100 bg-slate-50 focus:ring-2 focus:ring-ares-green outline-none text-sm font-bold"
-                  placeholder="AAPL, MSFT, GOOGL..."
-                />
-              </div>
-            )}
-
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Investment ($)</label>
-                <input
-                  type="number"
-                  value={formData.investment}
-                  onChange={(e) => setFormData({ ...formData, investment: parseInt(e.target.value) })}
-                  className="w-full px-4 py-3 rounded-xl border border-slate-100 bg-slate-50 focus:ring-2 focus:ring-ares-green outline-none text-sm font-bold"
-                />
-              </div>
-              <div className="space-y-2">
-                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Monthly ($)</label>
-                <input
-                  type="number"
-                  value={formData.monthly_contribution}
-                  onChange={(e) => setFormData({ ...formData, monthly_contribution: parseInt(e.target.value) })}
-                  className="w-full px-4 py-3 rounded-xl border border-slate-100 bg-slate-50 focus:ring-2 focus:ring-ares-green outline-none text-sm font-bold"
-                />
-              </div>
-            </div>
-
-            {engineMode === 'auto' && (
-              <div className="space-y-2">
-                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">
-                  Number of Holdings
-                </label>
-                <input
-                  type="number"
-                  min={2}
-                  max={assets.length}
-                  value={formData.num_holdings}
-                  onChange={(e) =>
-                    setFormData({
-                      ...formData,
-                      num_holdings: parseInt(e.target.value) || 2,
-                    })
-                  }
-                  className="w-full px-4 py-3 rounded-xl border border-slate-100 bg-slate-50 focus:ring-2 focus:ring-ares-green outline-none text-sm font-bold"
-                />
-              </div>
-            )}
-
-            <div className="space-y-2">
-              <div className="flex justify-between">
-                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Risk Tolerance</label>
-                <span className="text-[10px] font-black text-ares-green uppercase">{Math.round(formData.risk_tolerance * 100)}%</span>
-              </div>
-              <input
-                type="range"
-                min="0"
-                max="1"
-                step="0.1"
-                value={formData.risk_tolerance}
-                onChange={(e) => setFormData({ ...formData, risk_tolerance: parseFloat(e.target.value) })}
-                className="w-full accent-ares-green h-1.5 bg-slate-100 rounded-lg appearance-none cursor-pointer"
-              />
-              <div className="flex justify-between text-[8px] font-bold text-slate-400 uppercase">
-                <span>Conservative</span>
-                <span>Aggressive</span>
-              </div>
-            </div>
-
-            <div className="flex items-center gap-3 bg-slate-50 p-3 rounded-xl border border-slate-100 cursor-pointer hover:border-slate-200 transition-colors" onClick={() => setFormData({ ...formData, is_compounded: !formData.is_compounded })}>
-              <div className={cn(
-                "w-5 h-5 rounded flex items-center justify-center transition-colors",
-                formData.is_compounded ? "bg-ares-green text-white" : "bg-white border-2 border-slate-300"
-              )}>
-                {formData.is_compounded && <CheckCircle2 className="w-3 h-3" />}
-              </div>
-              <div>
-                <p className="text-xs font-bold text-slate-900 leading-none">Reinvest Earnings</p>
-                <p className="text-[10px] text-slate-500 mt-1">Compound interest exponentially</p>
-              </div>
-            </div>
-
-            <button
-              type="submit"
-              disabled={isOptimizing}
-              className="w-full py-4 bg-slate-900 text-white rounded-2xl font-bold flex items-center justify-center gap-2 hover:bg-slate-800 transition-all disabled:opacity-50 shadow-xl shadow-slate-900/10"
-            >
-              {isOptimizing ? <Loader2 className="w-5 h-5 animate-spin" /> : <Calculator className="w-5 h-5" />}
-              Generate Portfolio
-            </button>
-          </form>
-        </div>
-
-        {/* Results or Chart */}
-        <div className="lg:col-span-2 space-y-8">
-          <AnimatePresence mode="wait">
-            {optimizationResult ? (
-              <motion.div
-                key="results"
-                initial={{ opacity: 0, scale: 0.95 }}
-                animate={{ opacity: 1, scale: 1 }}
-                exit={{ opacity: 0, scale: 0.95 }}
-                className="grid grid-cols-1 md:grid-cols-2 gap-6"
-              >
-                <div className="bg-white rounded-3xl border border-slate-100 p-8 shadow-sm">
-                  <h3 className="text-lg font-bold text-slate-900 mb-6 font-display flex items-center gap-2">
-                    <PieChartIcon className="w-5 h-5 text-ares-green" /> Optimized Weights
-                  </h3>
-                  <div className="h-48">
-                    <ResponsiveContainer width="100%" height="100%">
-                      <PieChart>
-                        <Pie
-                          data={Object.entries(optimizationResult.optimization.weights).map(([name, value]) => ({ name, value }))}
-                          cx="50%"
-                          cy="50%"
-                          innerRadius={60}
-                          outerRadius={80}
-                          paddingAngle={5}
-                          dataKey="value"
-                        >
-                          {Object.entries(optimizationResult.optimization.weights).map((entry, index) => (
-                            <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
-                          ))}
-                        </Pie>
-                        <Tooltip />
-                      </PieChart>
-                    </ResponsiveContainer>
-                  </div>
-                  <div className="mt-4 grid grid-cols-2 gap-2">
-                    {Object.entries(optimizationResult.optimization.weights).map(([name, value], i) => (
-                      <div key={name} className="flex items-center gap-2">
-                        <div className="w-2 h-2 rounded-full" style={{ backgroundColor: COLORS[i % COLORS.length] }}></div>
-                        <span className="text-xs font-bold text-slate-700">{name}: {(value as number * 100).toFixed(0)}%</span>
-                      </div>
+            <div className="flex flex-col md:flex-row md:items-center gap-4">
+              <div className="relative">
+                <select
+                  value=""
+                  onChange={(e) => {
+                    const id = e.target.value;
+                    if (!id) return;
+                    const portfolio = savedPortfolios.find(p => p.id === id);
+                    if (portfolio && onLoadPortfolio) {
+                      onLoadPortfolio(portfolio);
+                    }
+                  }}
+                  className="appearance-none bg-white border border-slate-200 pl-4 pr-10 py-1.5 rounded-xl text-xs font-bold uppercase tracking-widest text-slate-500 hover:bg-slate-50 hover:text-slate-900 transition-colors focus:outline-none focus:ring-2 focus:ring-ares-green cursor-pointer"
+                >
+                  <option value="" disabled>Load Saved Portfolio...</option>
+                  {savedPortfolios.length > 0 && <optgroup label="Saved Portfolios">
+                    {savedPortfolios.map(p => (
+                      <option key={p.id} value={p.id}>{p.name}</option>
                     ))}
+                  </optgroup>}
+                </select>
+                <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-3 text-slate-400">
+                  <svg className="fill-current h-3 w-3" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20"><path d="M9.293 12.95l.707.707L15.657 8l-1.414-1.414L10 10.828 5.757 6.586 4.343 8z" /></svg>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2 text-xs font-black tracking-widest uppercase text-slate-400">
+                <span className="w-2 h-2 rounded-full bg-ares-green animate-pulse"></span>
+                Live Market Feed
+              </div>
+            </div>
+          </header>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+            {stats.map((stat, i) => (
+              <motion.div
+                key={stat.label}
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: i * 0.1 }}
+                className="bg-white p-6 rounded-3xl border border-slate-100 shadow-sm hover:shadow-md transition-shadow"
+              >
+                <div className="flex items-center justify-between mb-4">
+                  <div className={cn("p-2 rounded-xl text-white", stat.color)}>
+                    <stat.icon className="w-5 h-5" />
                   </div>
+                  <span className={cn(
+                    "text-xs font-bold px-2 py-1 rounded-lg",
+                    stat.change.startsWith('+') ? "bg-emerald-50 text-emerald-600" : "bg-slate-50 text-slate-600"
+                  )}>
+                    {stat.change}
+                  </span>
+                </div>
+                <p className="text-sm font-medium text-slate-500 mb-1">{stat.label}</p>
+                <p className="text-2xl font-black text-slate-900 font-display">{stat.value}</p>
+              </motion.div>
+            ))}
+          </div>
 
-                  {onNavigateRiskAnalysis && (
-                    <button
-                      onClick={onNavigateRiskAnalysis}
-                      className="mt-6 w-full py-3 bg-ares-green/10 text-ares-green text-sm font-bold rounded-xl flex items-center justify-center gap-2 transition-colors hover:bg-ares-green/20"
-                    >
-                      <Activity className="w-4 h-4" /> View Deep Risk Analysis
-                    </button>
-                  )}
+          {/* Alpha Backtest teaser card */}
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+            <div className="lg:col-span-1 bg-white rounded-3xl border border-slate-100 p-6 shadow-sm flex flex-col justify-between">
+              <div className="flex items-center gap-3 mb-4">
+                <div className="p-2 bg-ares-green/10 rounded-xl">
+                  <Activity className="w-5 h-5 text-ares-green" />
+                </div>
+                <div>
+                  <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">
+                    Polymarket Model
+                  </p>
+                  <h3 className="text-lg font-bold text-slate-900 font-display">
+                    Alpha Backtesting Engine
+                  </h3>
+                </div>
+              </div>
+              <p className="text-sm text-slate-500 mb-4">
+                See how the insider-informed Polymarket alpha model would have performed historically —
+                equity curve, calibration, and virtual PnL on a $10k account.
+              </p>
+              <button
+                type="button"
+                onClick={onNavigateAlphaBacktest}
+                className="inline-flex items-center justify-between w-full px-4 py-3 rounded-2xl bg-slate-900 text-white text-xs font-black uppercase tracking-widest hover:bg-slate-800 transition"
+              >
+                Open Alpha Backtest
+                <ChevronRight className="w-4 h-4" />
+              </button>
+            </div>
+          </div>
 
-                  {allocationDetails && (
-                    <div className="mt-6 pt-4 border-t border-slate-100">
-                      <h4 className="text-xs font-black text-slate-400 uppercase tracking-widest mb-3">
-                        Money Allocation
-                      </h4>
-                      <div className="space-y-2 max-h-56 overflow-y-auto pr-1">
-                        {allocationDetails.rows.map((row) => (
-                          <div key={row.ticker} className="flex items-center justify-between text-xs">
-                            <div className="flex flex-col">
-                              <span className="font-bold text-slate-800">{row.ticker}</span>
-                              <span className="text-[10px] text-slate-400">{row.name}</span>
-                            </div>
-                            <div className="text-right space-y-0.5">
-                              <div className="text-[10px] text-slate-400">
-                                Weight <span className="font-bold text-slate-700">{(row.weight * 100).toFixed(1)}%</span>
-                              </div>
-                              <div className="text-[10px] text-slate-400">
-                                Amount <span className="font-bold text-slate-700">{formatCurrency(row.investedDollars ?? row.targetDollars)}</span>
-                              </div>
-                              {row.shares !== null && row.price && (
-                                <div className="text-[10px] text-slate-400">
-                                  Shares <span className="font-bold text-slate-700">{row.shares}</span> @{' '}
-                                  <span className="font-bold text-slate-700">{formatCurrency(row.price)}</span>
-                                </div>
-                              )}
-                            </div>
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+            {/* Portfolio Engine Form */}
+            <div className="bg-white rounded-3xl border border-slate-100 p-8 shadow-sm">
+              <div className="flex items-center gap-3 mb-6">
+                <div className="p-2 bg-ares-green/10 rounded-xl">
+                  <Calculator className="w-5 h-5 text-ares-green" />
+                </div>
+                <h3 className="text-lg font-bold text-slate-900 font-display">Portfolio Engine</h3>
+              </div>
+
+              <form onSubmit={handleOptimize} className="space-y-5">
+                <div className="flex gap-2 mb-2">
+                  <button
+                    type="button"
+                    onClick={() => setEngineMode('manual')}
+                    className={cn(
+                      'flex-1 px-3 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest border',
+                      engineMode === 'manual'
+                        ? 'bg-slate-900 text-white border-slate-900'
+                        : 'bg-slate-50 text-slate-500 border-slate-100'
+                    )}
+                  >
+                    I choose tickers
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setEngineMode('auto')}
+                    className={cn(
+                      'flex-1 px-3 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest border',
+                      engineMode === 'auto'
+                        ? 'bg-ares-green text-slate-900 border-ares-green'
+                        : 'bg-slate-50 text-slate-500 border-slate-100'
+                    )}
+                  >
+                    Suggest for me
+                  </button>
+                </div>
+
+                {engineMode === 'manual' && (
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">
+                      Tickers (Comma separated)
+                    </label>
+                    <input
+                      type="text"
+                      value={formData.tickers.join(', ')}
+                      onChange={(e) =>
+                        setFormData({
+                          ...formData,
+                          tickers: e.target.value
+                            .split(',')
+                            .map((t) => t.trim().toUpperCase())
+                            .filter(Boolean),
+                        })
+                      }
+                      className="w-full px-4 py-3 rounded-xl border border-slate-100 bg-slate-50 focus:ring-2 focus:ring-ares-green outline-none text-sm font-bold"
+                      placeholder="AAPL, MSFT, GOOGL..."
+                    />
+                  </div>
+                )}
+
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Investment ($)</label>
+                    <input
+                      type="number"
+                      value={formData.investment}
+                      onChange={(e) => setFormData({ ...formData, investment: parseInt(e.target.value) })}
+                      className="w-full px-4 py-3 rounded-xl border border-slate-100 bg-slate-50 focus:ring-2 focus:ring-ares-green outline-none text-sm font-bold"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Monthly ($)</label>
+                    <input
+                      type="number"
+                      value={formData.monthly_contribution}
+                      onChange={(e) => setFormData({ ...formData, monthly_contribution: parseInt(e.target.value) })}
+                      className="w-full px-4 py-3 rounded-xl border border-slate-100 bg-slate-50 focus:ring-2 focus:ring-ares-green outline-none text-sm font-bold"
+                    />
+                  </div>
+                </div>
+
+                {engineMode === 'auto' && (
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">
+                      Number of Holdings
+                    </label>
+                    <input
+                      type="number"
+                      min={2}
+                      max={assets.length}
+                      value={formData.num_holdings}
+                      onChange={(e) =>
+                        setFormData({
+                          ...formData,
+                          num_holdings: parseInt(e.target.value) || 2,
+                        })
+                      }
+                      className="w-full px-4 py-3 rounded-xl border border-slate-100 bg-slate-50 focus:ring-2 focus:ring-ares-green outline-none text-sm font-bold"
+                    />
+                  </div>
+                )}
+
+                <div className="space-y-2">
+                  <div className="flex justify-between">
+                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Risk Tolerance</label>
+                    <span className="text-[10px] font-black text-ares-green uppercase">{Math.round(formData.risk_tolerance * 100)}%</span>
+                  </div>
+                  <input
+                    type="range"
+                    min="0"
+                    max="1"
+                    step="0.1"
+                    value={formData.risk_tolerance}
+                    onChange={(e) => setFormData({ ...formData, risk_tolerance: parseFloat(e.target.value) })}
+                    className="w-full accent-ares-green h-1.5 bg-slate-100 rounded-lg appearance-none cursor-pointer"
+                  />
+                  <div className="flex justify-between text-[8px] font-bold text-slate-400 uppercase">
+                    <span>Conservative</span>
+                    <span>Aggressive</span>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-3 bg-slate-50 p-3 rounded-xl border border-slate-100 cursor-pointer hover:border-slate-200 transition-colors" onClick={() => setFormData({ ...formData, is_compounded: !formData.is_compounded })}>
+                  <div className={cn(
+                    "w-5 h-5 rounded flex items-center justify-center transition-colors",
+                    formData.is_compounded ? "bg-ares-green text-white" : "bg-white border-2 border-slate-300"
+                  )}>
+                    {formData.is_compounded && <CheckCircle2 className="w-3 h-3" />}
+                  </div>
+                  <div>
+                    <p className="text-xs font-bold text-slate-900 leading-none">Reinvest Earnings</p>
+                    <p className="text-[10px] text-slate-500 mt-1">Compound interest exponentially</p>
+                  </div>
+                </div>
+
+                <button
+                  type="submit"
+                  disabled={isOptimizing}
+                  className="w-full py-4 bg-slate-900 text-white rounded-2xl font-bold flex items-center justify-center gap-2 hover:bg-slate-800 transition-all disabled:opacity-50 shadow-xl shadow-slate-900/10"
+                >
+                  {isOptimizing ? <Loader2 className="w-5 h-5 animate-spin" /> : <Calculator className="w-5 h-5" />}
+                  Generate Portfolio
+                </button>
+              </form>
+            </div>
+
+            {/* Results or Chart */}
+            <div className="lg:col-span-2 space-y-8">
+              <AnimatePresence mode="wait">
+                {optimizationResult ? (
+                  <motion.div
+                    key="results"
+                    initial={{ opacity: 0, scale: 0.95 }}
+                    animate={{ opacity: 1, scale: 1 }}
+                    exit={{ opacity: 0, scale: 0.95 }}
+                    className="grid grid-cols-1 md:grid-cols-2 gap-6"
+                  >
+                    <div className="bg-white rounded-3xl border border-slate-100 p-8 shadow-sm">
+                      <h3 className="text-lg font-bold text-slate-900 mb-6 font-display flex items-center gap-2">
+                        <PieChartIcon className="w-5 h-5 text-ares-green" /> Optimized Weights
+                      </h3>
+                      <div className="h-48">
+                        <ResponsiveContainer width="100%" height="100%">
+                          <PieChart>
+                            <Pie
+                              data={Object.entries(optimizationResult.optimization.weights).map(([name, value]) => ({ name, value }))}
+                              cx="50%"
+                              cy="50%"
+                              innerRadius={60}
+                              outerRadius={80}
+                              paddingAngle={5}
+                              dataKey="value"
+                            >
+                              {Object.entries(optimizationResult.optimization.weights).map((entry, index) => (
+                                <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                              ))}
+                            </Pie>
+                            <Tooltip />
+                          </PieChart>
+                        </ResponsiveContainer>
+                      </div>
+                      <div className="mt-4 grid grid-cols-2 gap-2">
+                        {Object.entries(optimizationResult.optimization.weights).map(([name, value], i) => (
+                          <div key={name} className="flex items-center gap-2">
+                            <div className="w-2 h-2 rounded-full" style={{ backgroundColor: COLORS[i % COLORS.length] }}></div>
+                            <span className="text-xs font-bold text-slate-700">{name}: {(value as number * 100).toFixed(0)}%</span>
                           </div>
                         ))}
                       </div>
-                      <div className="mt-3 flex justify-between text-[10px] font-black text-slate-500 uppercase tracking-widest">
-                        <span>Invested</span>
-                        <span>{formatCurrency(allocationDetails.totalInvested)}</span>
-                      </div>
-                      <div className="flex justify-between text-[10px] font-black uppercase tracking-widest">
-                        <span className={cn("text-slate-500")}>Leftover Cash</span>
-                        <span className={cn(allocationDetails.leftoverCash >= 0 ? "text-emerald-600" : "text-rose-500")}>
-                          {formatCurrency(allocationDetails.leftoverCash)}
-                        </span>
-                      </div>
-                    </div>
-                  )}
-                </div>
 
-                <div className="bg-white rounded-3xl border border-slate-100 p-8 shadow-sm flex flex-col justify-between">
-                  <div>
-                    <h3 className="text-lg font-bold text-slate-900 mb-6 font-display">Performance Forecast</h3>
-                    <div className="space-y-4">
-                      <div className="flex justify-between items-end">
-                        <span className="text-xs font-bold text-slate-400 uppercase tracking-widest">Expected Return</span>
-                        <span className="text-2xl font-black text-emerald-500">{(optimizationResult.optimization.expected_return * 100).toFixed(1)}%</span>
-                      </div>
-                      <div className="flex justify-between items-end">
-                        <span className="text-xs font-bold text-slate-400 uppercase tracking-widest">Annual Volatility</span>
-                        <span className="text-2xl font-black text-slate-900">{(optimizationResult.optimization.volatility * 100).toFixed(1)}%</span>
-                      </div>
-                      <div className="flex justify-between items-end">
-                        <span className="text-xs font-bold text-slate-400 uppercase tracking-widest">Sharpe Ratio</span>
-                        <span className="text-2xl font-black text-indigo-500">{optimizationResult.optimization.sharpe_ratio}</span>
-                      </div>
-                    </div>
-                  </div>
-                  <div className="mt-6 pt-6 border-t border-slate-50">
-                    <div className="flex items-center justify-between gap-2">
-                      <span className="px-3 py-1 bg-slate-900 text-white text-[10px] font-black rounded-full uppercase tracking-widest shrink-0">
-                        {optimizationResult.optimization.strategy} Strategy
-                      </span>
-                      {!saveMode ? (
+                      {onNavigateRiskAnalysis && (
                         <button
-                          onClick={() => setSaveMode(true)}
-                          className="px-3 py-1.5 bg-ares-green/10 text-ares-dark-green text-xs font-bold rounded-xl flex items-center gap-1 hover:bg-ares-green/20 transition-colors"
+                          onClick={onNavigateRiskAnalysis}
+                          className="mt-6 w-full py-3 bg-ares-green/10 text-ares-green text-sm font-bold rounded-xl flex items-center justify-center gap-2 transition-colors hover:bg-ares-green/20"
                         >
-                          <Bookmark className="w-3 h-3" /> Save Portfolio
+                          <Activity className="w-4 h-4" /> View Deep Risk Analysis
                         </button>
-                      ) : (
-                        <div className="flex items-center gap-1.5">
-                          <input
-                            autoFocus
-                            value={saveName}
-                            onChange={(e) => setSaveName(e.target.value)}
-                            onKeyDown={(e) => {
-                              if (e.key === 'Enter' && saveName.trim()) {
-                                onSavePortfolio?.(saveName.trim(), optimizationResult, activeInvestment);
-                                setSaveMode(false);
-                                setSaveName('');
-                              } else if (e.key === 'Escape') {
-                                setSaveMode(false);
-                                setSaveName('');
-                              }
-                            }}
-                            placeholder="Portfolio name..."
-                            className="px-2 py-1 text-xs border border-slate-200 rounded-lg outline-none focus:ring-2 focus:ring-ares-green w-32"
-                          />
-                          <button
-                            disabled={!saveName.trim()}
-                            onClick={() => {
-                              if (saveName.trim()) {
-                                onSavePortfolio?.(saveName.trim(), optimizationResult, activeInvestment);
-                                setSaveMode(false);
-                                setSaveName('');
-                              }
-                            }}
-                            className="px-2 py-1 bg-ares-green text-white text-[10px] font-black rounded-lg disabled:opacity-50"
-                          >
-                            Save
-                          </button>
+                      )}
+
+                      {allocationDetails && (
+                        <div className="mt-6 pt-4 border-t border-slate-100">
+                          <h4 className="text-xs font-black text-slate-400 uppercase tracking-widest mb-3">
+                            Money Allocation
+                          </h4>
+                          <div className="space-y-2 max-h-56 overflow-y-auto pr-1">
+                            {allocationDetails.rows.map((row) => (
+                              <div key={row.ticker} className="flex items-center justify-between text-xs">
+                                <div className="flex flex-col">
+                                  <span className="font-bold text-slate-800">{row.ticker}</span>
+                                  <span className="text-[10px] text-slate-400">{row.name}</span>
+                                </div>
+                                <div className="text-right space-y-0.5">
+                                  <div className="text-[10px] text-slate-400">
+                                    Weight <span className="font-bold text-slate-700">{(row.weight * 100).toFixed(1)}%</span>
+                                  </div>
+                                  <div className="text-[10px] text-slate-400">
+                                    Amount <span className="font-bold text-slate-700">{formatCurrency(row.investedDollars ?? row.targetDollars)}</span>
+                                  </div>
+                                  {row.shares !== null && row.price && (
+                                    <div className="text-[10px] text-slate-400">
+                                      Shares <span className="font-bold text-slate-700">{row.shares}</span> @{' '}
+                                      <span className="font-bold text-slate-700">{formatCurrency(row.price)}</span>
+                                    </div>
+                                  )}
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                          <div className="mt-3 flex justify-between text-[10px] font-black text-slate-500 uppercase tracking-widest">
+                            <span>Invested</span>
+                            <span>{formatCurrency(allocationDetails.totalInvested)}</span>
+                          </div>
+                          <div className="flex justify-between text-[10px] font-black uppercase tracking-widest">
+                            <span className={cn("text-slate-500")}>Leftover Cash</span>
+                            <span className={cn(allocationDetails.leftoverCash >= 0 ? "text-emerald-600" : "text-rose-500")}>
+                              {formatCurrency(allocationDetails.leftoverCash)}
+                            </span>
+                          </div>
                         </div>
                       )}
                     </div>
-                  </div>
-                </div>
 
-                <div className="md:col-span-2 bg-white rounded-3xl border border-slate-100 p-8 shadow-sm">
-                  <div className="flex items-center justify-between mb-6">
-                    <h3 className="text-lg font-bold text-slate-900 font-display">Growth Projection</h3>
-                    <div className="flex items-center gap-4 text-[10px] font-black tracking-widest uppercase mt-1">
-                      <div className="flex items-center gap-1.5">
-                        <span className="w-2 h-2 rounded-full bg-ares-green"></span>
-                        <span className="text-ares-dark-green font-bold">Optimized Portfolio</span>
+                    <div className="bg-white rounded-3xl border border-slate-100 p-8 shadow-sm flex flex-col justify-between">
+                      <div>
+                        <h3 className="text-lg font-bold text-slate-900 mb-6 font-display">Performance Forecast</h3>
+                        <div className="space-y-4">
+                          <div className="flex justify-between items-end">
+                            <span className="text-xs font-bold text-slate-400 uppercase tracking-widest">Expected Return</span>
+                            <span className="text-2xl font-black text-emerald-500">{(optimizationResult.optimization.expected_return * 100).toFixed(1)}%</span>
+                          </div>
+                          <div className="flex justify-between items-end">
+                            <span className="text-xs font-bold text-slate-400 uppercase tracking-widest">Annual Volatility</span>
+                            <span className="text-2xl font-black text-slate-900">{(optimizationResult.optimization.volatility * 100).toFixed(1)}%</span>
+                          </div>
+                          <div className="flex justify-between items-end">
+                            <span className="text-xs font-bold text-slate-400 uppercase tracking-widest">Sharpe Ratio</span>
+                            <span className="text-2xl font-black text-indigo-500">{optimizationResult.optimization.sharpe_ratio}</span>
+                          </div>
+                        </div>
                       </div>
-                      <div className="flex items-center gap-1.5">
-                        <span className="w-2 h-2 rounded-full bg-slate-300"></span>
-                        <span className="text-slate-500 font-bold">S&P 500 Benchmark</span>
+                      <div className="mt-6 pt-6 border-t border-slate-50">
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="px-3 py-1 bg-slate-900 text-white text-[10px] font-black rounded-full uppercase tracking-widest shrink-0">
+                            {optimizationResult.optimization.strategy} Strategy
+                          </span>
+                          {!saveMode ? (
+                            <button
+                              onClick={() => setSaveMode(true)}
+                              className="px-3 py-1.5 bg-ares-green/10 text-ares-dark-green text-xs font-bold rounded-xl flex items-center gap-1 hover:bg-ares-green/20 transition-colors"
+                            >
+                              <Bookmark className="w-3 h-3" /> Save Portfolio
+                            </button>
+                          ) : (
+                            <div className="flex items-center gap-1.5">
+                              <input
+                                autoFocus
+                                value={saveName}
+                                onChange={(e) => setSaveName(e.target.value)}
+                                onKeyDown={(e) => {
+                                  if (e.key === 'Enter' && saveName.trim()) {
+                                    onSavePortfolio?.(saveName.trim(), optimizationResult, activeInvestment);
+                                    setSaveMode(false);
+                                    setSaveName('');
+                                  } else if (e.key === 'Escape') {
+                                    setSaveMode(false);
+                                    setSaveName('');
+                                  }
+                                }}
+                                placeholder="Portfolio name..."
+                                className="px-2 py-1 text-xs border border-slate-200 rounded-lg outline-none focus:ring-2 focus:ring-ares-green w-32"
+                              />
+                              <button
+                                disabled={!saveName.trim()}
+                                onClick={() => {
+                                  if (saveName.trim()) {
+                                    onSavePortfolio?.(saveName.trim(), optimizationResult, activeInvestment);
+                                    setSaveMode(false);
+                                    setSaveName('');
+                                  }
+                                }}
+                                className="px-2 py-1 bg-ares-green text-white text-[10px] font-black rounded-lg disabled:opacity-50"
+                              >
+                                Save
+                              </button>
+                            </div>
+                          )}
+                        </div>
                       </div>
                     </div>
-                  </div>
-                  <div className="h-64">
-                    <ResponsiveContainer width="100%" height="100%">
-                      <AreaChart data={optimizationResult.backtest.growth}>
-                        <defs>
-                          <linearGradient id="colorPort" x1="0" y1="0" x2="0" y2="1">
-                            <stop offset="5%" stopColor="#36e27b" stopOpacity={0.1} />
-                            <stop offset="95%" stopColor="#36e27b" stopOpacity={0} />
-                          </linearGradient>
-                        </defs>
-                        <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
-                        <XAxis dataKey="month" hide />
-                        <YAxis hide />
-                        <Tooltip
-                          contentStyle={{ borderRadius: '16px', border: 'none', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)' }}
-                          formatter={(value: number) => [`$${value.toLocaleString()}`, 'Value']}
-                          labelFormatter={(label) => `Month ${label}`}
-                        />
-                        <Area type="monotone" dataKey="portfolio" stroke="#36e27b" strokeWidth={3} fillOpacity={1} fill="url(#colorPort)" />
-                        <Line type="monotone" dataKey="benchmark" stroke="#cbd5e1" strokeWidth={2} strokeDasharray="5 5" dot={false} />
-                      </AreaChart>
-                    </ResponsiveContainer>
-                  </div>
-                </div>
-              </motion.div>
-            ) : (
-              <motion.div
-                key="placeholder"
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                className="bg-white rounded-3xl border border-slate-100 p-8 shadow-sm h-full flex flex-col"
-              >
-                <h3 className="text-lg font-bold text-slate-900 mb-8 font-display">Market Performance History</h3>
-                <div className="flex-1 min-h-[400px]">
-                  <ResponsiveContainer width="100%" height="100%">
-                    <LineChart data={assets.slice(0, 5).map(a => ({ name: a.name, price: a.price }))}>
-                      <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
-                      <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{ fontSize: 10, fontWeight: 700, fill: '#94a3b8' }} />
-                      <YAxis axisLine={false} tickLine={false} tick={{ fontSize: 10, fontWeight: 700, fill: '#94a3b8' }} />
-                      <Tooltip
-                        contentStyle={{ borderRadius: '16px', border: 'none', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)' }}
-                      />
-                      <Line
-                        type="monotone"
-                        dataKey="price"
-                        stroke="#36e27b"
-                        strokeWidth={4}
-                        dot={{ r: 4, fill: '#36e27b', strokeWidth: 2, stroke: '#fff' }}
-                        activeDot={{ r: 6, strokeWidth: 0 }}
-                      />
-                    </LineChart>
-                  </ResponsiveContainer>
-                </div>
-              </motion.div>
-            )}
-          </AnimatePresence>
-        </div>
-      </div>
-    </div >
+
+                    <div className="md:col-span-2 bg-white rounded-3xl border border-slate-100 p-8 shadow-sm">
+                      <div className="flex items-center justify-between mb-6">
+                        <h3 className="text-lg font-bold text-slate-900 font-display">Growth Projection</h3>
+                        <div className="flex items-center gap-4 text-[10px] font-black tracking-widest uppercase mt-1">
+                          <div className="flex items-center gap-1.5">
+                            <span className="w-2 h-2 rounded-full bg-ares-green"></span>
+                            <span className="text-ares-dark-green font-bold">Optimized Portfolio</span>
+                          </div>
+                          <div className="flex items-center gap-1.5">
+                            <span className="w-2 h-2 rounded-full bg-slate-300"></span>
+                            <span className="text-slate-500 font-bold">S&P 500 Benchmark</span>
+                          </div>
+                        </div>
+                      </div>
+                      <div className="h-64">
+                        <ResponsiveContainer width="100%" height="100%">
+                          <AreaChart data={optimizationResult.backtest.growth}>
+                            <defs>
+                              <linearGradient id="colorPort" x1="0" y1="0" x2="0" y2="1">
+                                <stop offset="5%" stopColor="#36e27b" stopOpacity={0.1} />
+                                <stop offset="95%" stopColor="#36e27b" stopOpacity={0} />
+                              </linearGradient>
+                            </defs>
+                            <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+                            <XAxis dataKey="month" hide />
+                            <YAxis hide />
+                            <Tooltip
+                              contentStyle={{ borderRadius: '16px', border: 'none', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)' }}
+                              formatter={(value: number) => [`$${value.toLocaleString()}`, 'Value']}
+                              labelFormatter={(label) => `Month ${label}`}
+                            />
+                            <Area type="monotone" dataKey="portfolio" stroke="#36e27b" strokeWidth={3} fillOpacity={1} fill="url(#colorPort)" />
+                            <Line type="monotone" dataKey="benchmark" stroke="#cbd5e1" strokeWidth={2} strokeDasharray="5 5" dot={false} />
+                          </AreaChart>
+                        </ResponsiveContainer>
+                      </div>
+                    </div>
+                  </motion.div>
+                ) : (
+                  <motion.div
+                    key="placeholder"
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: 1 }}
+                    className="bg-white rounded-3xl border border-slate-100 p-8 shadow-sm h-full flex flex-col"
+                  >
+                    <h3 className="text-lg font-bold text-slate-900 mb-8 font-display">Market Performance History</h3>
+                    <div className="flex-1 min-h-[400px]">
+                      <ResponsiveContainer width="100%" height="100%">
+                        <LineChart data={assets.slice(0, 5).map(a => ({ name: a.name, price: a.price }))}>
+                          <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+                          <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{ fontSize: 10, fontWeight: 700, fill: '#94a3b8' }} />
+                          <YAxis axisLine={false} tickLine={false} tick={{ fontSize: 10, fontWeight: 700, fill: '#94a3b8' }} />
+                          <Tooltip
+                            contentStyle={{ borderRadius: '16px', border: 'none', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)' }}
+                          />
+                          <Line
+                            type="monotone"
+                            dataKey="price"
+                            stroke="#36e27b"
+                            strokeWidth={4}
+                            dot={{ r: 4, fill: '#36e27b', strokeWidth: 2, stroke: '#fff' }}
+                            activeDot={{ r: 6, strokeWidth: 0 }}
+                          />
+                        </LineChart>
+                      </ResponsiveContainer>
+                    </div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
+            </div>
+          </div>
+        </>
+      )}
+    </div>
   );
 };

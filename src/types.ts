@@ -113,6 +113,7 @@ export interface SavedPortfolio {
     benchmark_total_return: number;
     max_drawdown_pct: number;
   };
+  monthlyReturns?: any[];
 }
 
 export interface SavedAlphaTrade {
@@ -121,4 +122,12 @@ export interface SavedAlphaTrade {
   signal: PolymarketAlphaSignal;
   bankroll: number;
   stakeAmount: number;
+}
+
+export interface SavedWallet {
+  id: string; // Typically the wallet address itself to prevent duplicates
+  savedAt: string;
+  address: string;
+  source: 'insider' | 'whale';
+  notes?: string;
 }
