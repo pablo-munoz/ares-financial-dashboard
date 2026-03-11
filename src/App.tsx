@@ -212,6 +212,53 @@ export default function App() {
     setSavedWallets(updated);
     persistSavedWallets(updated);
   };
+  const handleExportTrades = () => {
+    const dataToExport = {
+      trades: savedTrades,
+      wallets: savedWallets
+    };
+    const jsonString = JSON.stringify(dataToExport, null, 2);
+    const blob = new Blob([jsonString], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `ares-saved-trades-${new Date().toISOString().split('T')[0]}.json`;
+    document.body.appendChild(a);
+    a.click();
+
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  };
+
+  const handleImportTrades = (importedData: any) => {
+    try {
+      if (importedData.trades && Array.isArray(importedData.trades)) {
+        const newTrades = importedData.trades.filter(
+          (t: SavedAlphaTrade) => !savedTrades.some(existing => existing.id === t.id)
+        );
+        if (newTrades.length > 0) {
+          const updatedTrades = [...newTrades, ...savedTrades];
+          setSavedTrades(updatedTrades);
+          persistSavedTrades(updatedTrades);
+        }
+      }
+
+      if (importedData.wallets && Array.isArray(importedData.wallets)) {
+        const newWallets = importedData.wallets.filter(
+          (w: SavedWallet) => !savedWallets.some(existing => existing.address === w.address)
+        );
+        if (newWallets.length > 0) {
+          const updatedWallets = [...newWallets, ...savedWallets];
+          setSavedWallets(updatedWallets);
+          persistSavedWallets(updatedWallets);
+        }
+      }
+    } catch (e) {
+      console.error("Failed to import trades:", e);
+      alert("Failed to parse the uploaded file. Please ensure it is a valid Ares export.");
+    }
+  };
 
   return (
     <div className="flex min-h-screen">
@@ -266,6 +313,8 @@ export default function App() {
                 onDeleteTrade={handleDeleteTrade}
                 onDeleteWallet={handleDeleteWallet}
                 onNavigatePolymarket={() => setActiveTab('polymarket')}
+                onExport={handleExportTrades}
+                onImport={handleImportTrades}
               />
             )}
             {activeTab === 'veo' && <VeoAnimation />}

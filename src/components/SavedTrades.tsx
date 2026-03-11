@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { Trash2, TrendingUp, ArrowUpRight, Zap, HelpCircle, Wallet, User } from 'lucide-react';
+import React, { useState, useRef } from 'react';
+import { Trash2, TrendingUp, ArrowUpRight, Zap, HelpCircle, Wallet, User, Download, Upload } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { SavedAlphaTrade, SavedWallet } from '../types';
 import { cn } from '../lib/utils';
@@ -10,6 +10,8 @@ interface SavedTradesProps {
     onDeleteTrade: (id: string) => void;
     onDeleteWallet: (id: string) => void;
     onNavigatePolymarket: () => void;
+    onExport?: () => void;
+    onImport?: (data: any) => void;
 }
 
 export const SavedTrades: React.FC<SavedTradesProps> = ({
@@ -18,8 +20,30 @@ export const SavedTrades: React.FC<SavedTradesProps> = ({
     onDeleteTrade,
     onDeleteWallet,
     onNavigatePolymarket,
+    onExport,
+    onImport
 }) => {
     const [activeView, setActiveView] = useState<'trades' | 'wallets'>('trades');
+    const fileInputRef = useRef<HTMLInputElement>(null);
+
+    const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+        const file = e.target.files?.[0];
+        if (!file || !onImport) return;
+
+        const reader = new FileReader();
+        reader.onload = (event) => {
+            try {
+                const json = JSON.parse(event.target?.result as string);
+                onImport(json);
+                // Clear input to allow re-uploading the same file
+                if (fileInputRef.current) fileInputRef.current.value = '';
+            } catch (err) {
+                console.error("Error parsing JSON file", err);
+                alert("Invalid JSON file uploaded.");
+            }
+        };
+        reader.readAsText(file);
+    };
 
     const formatCurrency = (value: number) =>
         `$${value.toLocaleString(undefined, { maximumFractionDigits: 2, minimumFractionDigits: 2 })}`;
@@ -58,28 +82,55 @@ export const SavedTrades: React.FC<SavedTradesProps> = ({
                     <p className="text-slate-500">Track your bookmarked Alpha Signals and smart money wallets.</p>
                 </div>
 
-                {/* Toggle Group */}
-                <div className="flex bg-slate-100 p-1 rounded-2xl shrink-0">
-                    <button
-                        onClick={() => setActiveView('trades')}
-                        className={cn(
-                            "px-6 py-2.5 text-xs font-black uppercase tracking-widest rounded-xl transition-all flex items-center gap-2",
-                            activeView === 'trades' ? "bg-white text-slate-900 shadow-sm" : "text-slate-400 hover:text-slate-600"
-                        )}
-                    >
-                        <Zap className="w-4 h-4" />
-                        Trades ({trades.length})
-                    </button>
-                    <button
-                        onClick={() => setActiveView('wallets')}
-                        className={cn(
-                            "px-6 py-2.5 text-xs font-black uppercase tracking-widest rounded-xl transition-all flex items-center gap-2",
-                            activeView === 'wallets' ? "bg-white text-slate-900 shadow-sm" : "text-slate-400 hover:text-slate-600"
-                        )}
-                    >
-                        <Wallet className="w-4 h-4" />
-                        Wallets ({wallets.length})
-                    </button>
+                <div className="flex items-center gap-4">
+                    {/* Actions */}
+                    <div className="flex items-center gap-2">
+                        <input
+                            type="file"
+                            accept=".json"
+                            ref={fileInputRef}
+                            style={{ display: 'none' }}
+                            onChange={handleFileUpload}
+                        />
+                        <button
+                            onClick={() => fileInputRef.current?.click()}
+                            className="p-2.5 text-slate-400 hover:text-ares-green hover:bg-ares-green/10 rounded-xl transition-all"
+                            title="Import Trades & Wallets"
+                        >
+                            <Upload className="w-4 h-4" />
+                        </button>
+                        <button
+                            onClick={onExport}
+                            className="p-2.5 text-slate-400 hover:text-ares-green hover:bg-ares-green/10 rounded-xl transition-all"
+                            title="Export Trades & Wallets"
+                        >
+                            <Download className="w-4 h-4" />
+                        </button>
+                    </div>
+
+                    {/* Toggle Group */}
+                    <div className="flex bg-slate-100 p-1 rounded-2xl shrink-0">
+                        <button
+                            onClick={() => setActiveView('trades')}
+                            className={cn(
+                                "px-6 py-2.5 text-xs font-black uppercase tracking-widest rounded-xl transition-all flex items-center gap-2",
+                                activeView === 'trades' ? "bg-white text-slate-900 shadow-sm" : "text-slate-400 hover:text-slate-600"
+                            )}
+                        >
+                            <Zap className="w-4 h-4" />
+                            Trades ({trades.length})
+                        </button>
+                        <button
+                            onClick={() => setActiveView('wallets')}
+                            className={cn(
+                                "px-6 py-2.5 text-xs font-black uppercase tracking-widest rounded-xl transition-all flex items-center gap-2",
+                                activeView === 'wallets' ? "bg-white text-slate-900 shadow-sm" : "text-slate-400 hover:text-slate-600"
+                            )}
+                        >
+                            <Wallet className="w-4 h-4" />
+                            Wallets ({wallets.length})
+                        </button>
+                    </div>
                 </div>
             </header>
 
