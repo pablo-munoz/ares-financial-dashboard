@@ -20,7 +20,8 @@ import {
 import { motion, AnimatePresence } from 'motion/react';
 import { PolymarketData, SavedAlphaTrade, SavedWallet } from '../types';
 import { AlphaBacktest } from './AlphaBacktest';
-import { cn } from '../lib/utils';
+import { cn, formatAddress } from '../lib/utils';
+import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 
 interface PolymarketProps {
   onSaveTrade?: (trade: SavedAlphaTrade) => void;
@@ -32,12 +33,47 @@ export const Polymarket: React.FC<PolymarketProps> = ({ onSaveTrade, onSaveWalle
   const [loading, setLoading] = useState(true);
   const [isRefreshingAlpha, setIsRefreshingAlpha] = useState(false);
   const [isRefreshingInsiders, setIsRefreshingInsiders] = useState(false);
+  const [customStakeAmount, setCustomStakeAmount] = useState<number | ''>('');
   const isRefreshingRef = useRef(false);
   const [searchQuery, setSearchQuery] = useState('');
+  const [alphaCategory, setAlphaCategory] = useState<string>('all');
+  const [alphaSort, setAlphaSort] = useState<'ev' | 'kelly'>('ev');
   const [selectedMarket, setSelectedMarket] = useState<any>(null);
   const [bankroll, setBankroll] = useState(10000);
   const [isPanelOpen, setIsPanelOpen] = useState(false);
   const [view, setView] = useState<'live' | 'backtest'>('live');
+  const [panelTab, setPanelTab] = useState<'execution' | 'chart' | 'activity'>('execution');
+  const [chartData, setChartData] = useState<any[]>([]);
+
+  useEffect(() => {
+    if (selectedMarket && panelTab === 'chart') {
+      const points = 30;
+      const data = [];
+      const currentFv = selectedMarket.fairValue * 100;
+      const currentMp = selectedMarket.marketPrice * 100;
+      const startFv = Math.max(0, Math.min(100, currentFv + (Math.random() * 40 - 20)));
+      const startMp = Math.max(0, Math.min(100, currentMp + (Math.random() * 40 - 20)));
+
+      for (let i = points; i >= 0; i--) {
+        const date = new Date();
+        date.setDate(date.getDate() - i);
+        const progress = (points - i) / points;
+        const ease = progress < 0.5 ? 2 * progress * progress : 1 - Math.pow(-2 * progress + 2, 2) / 2;
+
+        const fv = startFv + (currentFv - startFv) * ease + (Math.random() * 4 - 2);
+        const mp = startMp + (currentMp - startMp) * ease + (Math.random() * 4 - 2);
+
+        data.push({
+          date: date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' }),
+          fairValue: Math.max(0, Math.min(100, fv)),
+          marketPrice: Math.max(0, Math.min(100, mp))
+        });
+      }
+      data[data.length - 1].fairValue = currentFv;
+      data[data.length - 1].marketPrice = currentMp;
+      setChartData(data);
+    }
+  }, [selectedMarket, panelTab]);
 
   useEffect(() => {
     let isMounted = true;
@@ -123,9 +159,31 @@ export const Polymarket: React.FC<PolymarketProps> = ({ onSaveTrade, onSaveWalle
   const isLive =
     typeof data.lastUpdated === 'number' && Date.now() - data.lastUpdated < 60_000;
 
-  const filteredSignals = data.alphaSignals.filter(signal =>
-    signal.marketName.toLowerCase().includes(searchQuery.toLowerCase())
-  );
+  const filteredSignals = data.alphaSignals
+    .filter(signal => signal.marketName.toLowerCase().includes(searchQuery.toLowerCase()))
+    .filter(signal => {
+      if (alphaCategory === 'all') return true;
+
+      const c = (signal.category || '').toLowerCase();
+      const lower = signal.marketName.toLowerCase();
+
+      let mappedCat = 'general';
+
+      // 1. Check exact API category first
+      if (c === 'crypto') mappedCat = 'crypto';
+      else if (c === 'politics' || c === 'elections' || c === 'middle east') mappedCat = 'politics';
+      else if (c === 'sports' || c === 'f1' || c === 'formula 1' || c === 'tennis' || c === 'football' || c === 'nfl' || c === 'nba') mappedCat = 'sports';
+
+      // 2. Fallback to broad keyword heuristics if exact category mapping fails
+      if (mappedCat === 'general') {
+        if (lower.includes('bitcoin') || lower.includes('btc') || lower.includes('eth') || lower.includes('crypto') || lower.includes('token')) mappedCat = 'crypto';
+        else if (lower.includes('election') || lower.includes('president') || lower.includes('trump') || lower.includes('biden') || lower.includes('harris') || lower.includes('vote') || lower.includes('iran') || lower.includes('strike') || lower.includes('israel') || lower.includes('war') || lower.includes('russia') || lower.includes('ukraine') || lower.includes('gaza')) mappedCat = 'politics';
+        else if (lower.includes('nfl') || lower.includes('nba') || lower.includes('fc ') || lower.includes('super bowl') || lower.includes('championship') || lower.includes('piastri') || lower.includes('verstappen') || lower.includes('f1') || lower.includes('premier league') || lower.includes('dota') || lower.includes('esports')) mappedCat = 'sports';
+      }
+
+      return mappedCat === alphaCategory;
+    })
+    .sort((a, b) => alphaSort === 'ev' ? b.ev - a.ev : b.kellyStake - a.kellyStake);
 
   return (
     <div className="space-y-8 animate-in fade-in duration-700">
@@ -193,16 +251,59 @@ export const Polymarket: React.FC<PolymarketProps> = ({ onSaveTrade, onSaveWalle
         <>
           {/* Alpha Signals Grid */}
           <section className="space-y-4">
-            <div className="flex items-center gap-2 px-2">
-              <TrendingUp className="w-5 h-5 text-ares-green" />
-              <h2 className="text-xl font-bold font-display">Alpha Signals</h2>
-              <button
-                onClick={refreshAlpha}
-                disabled={isRefreshingAlpha}
-                className="ml-auto text-xs font-black uppercase tracking-widest text-ares-green hover:underline disabled:opacity-60 disabled:cursor-not-allowed"
-              >
-                Refresh signals
-              </button>
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 px-2">
+              <div className="flex items-center gap-2">
+                <TrendingUp className="w-5 h-5 text-ares-green" />
+                <h2 className="text-xl font-bold font-display">Alpha Signals</h2>
+              </div>
+
+              <div className="flex flex-wrap items-center gap-4">
+                {/* Category Filters */}
+                <div className="flex gap-1 bg-slate-100 p-1 rounded-xl">
+                  {['all', 'crypto', 'politics', 'sports'].map((cat) => (
+                    <button
+                      key={cat}
+                      onClick={() => setAlphaCategory(cat)}
+                      className={cn(
+                        "px-3 py-1.5 text-[10px] font-black uppercase tracking-widest rounded-lg transition-all",
+                        alphaCategory === cat ? "bg-white text-slate-900 shadow-sm" : "text-slate-400 hover:text-slate-600"
+                      )}
+                    >
+                      {cat}
+                    </button>
+                  ))}
+                </div>
+
+                {/* Sort Toggle */}
+                <div className="flex gap-1 bg-slate-100 p-1 rounded-xl">
+                  <button
+                    onClick={() => setAlphaSort('ev')}
+                    className={cn(
+                      "px-3 py-1.5 text-[10px] font-black uppercase tracking-widest rounded-lg transition-all",
+                      alphaSort === 'ev' ? "bg-white text-slate-900 shadow-sm" : "text-slate-400 hover:text-slate-600"
+                    )}
+                  >
+                    Highest EV
+                  </button>
+                  <button
+                    onClick={() => setAlphaSort('kelly')}
+                    className={cn(
+                      "px-3 py-1.5 text-[10px] font-black uppercase tracking-widest rounded-lg transition-all",
+                      alphaSort === 'kelly' ? "bg-white text-slate-900 shadow-sm" : "text-slate-400 hover:text-slate-600"
+                    )}
+                  >
+                    Highest Kelly
+                  </button>
+                </div>
+
+                <button
+                  onClick={refreshAlpha}
+                  disabled={isRefreshingAlpha}
+                  className="text-xs font-black uppercase tracking-widest text-ares-green hover:underline disabled:opacity-60 disabled:cursor-not-allowed"
+                >
+                  Refresh signals
+                </button>
+              </div>
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
@@ -219,9 +320,24 @@ export const Polymarket: React.FC<PolymarketProps> = ({ onSaveTrade, onSaveWalle
                   }}
                 >
                   <div className="flex justify-between items-start mb-4">
-                    <span className="px-3 py-1 bg-emerald-50 text-emerald-600 text-[10px] font-black rounded-full uppercase tracking-widest">
-                      EV+ {signal.ev}%
-                    </span>
+                    <div className="flex gap-2">
+                      <span className="px-3 py-1 bg-emerald-50 text-emerald-600 text-[10px] font-black rounded-full uppercase tracking-widest">
+                        EV+ {signal.ev}%
+                      </span>
+                      {signal.side && (
+                        <span className={cn(
+                          "px-3 py-1 text-[10px] font-black rounded-full uppercase tracking-widest",
+                          signal.side === 'YES' ? "bg-blue-50 text-blue-600" : "bg-rose-50 text-rose-600"
+                        )}>
+                          BUY {signal.side}
+                        </span>
+                      )}
+                      {signal.category && (
+                        <span className="px-3 py-1 bg-indigo-50 text-indigo-500 text-[10px] font-black rounded-full uppercase tracking-widest">
+                          {signal.category}
+                        </span>
+                      )}
+                    </div>
                     <a
                       href={`https://polymarket.com/event/${signal.eventSlug ?? signal.id}`}
                       target="_blank"
@@ -237,12 +353,17 @@ export const Polymarket: React.FC<PolymarketProps> = ({ onSaveTrade, onSaveWalle
                       onClick={(e) => {
                         e.stopPropagation();
                         if (onSaveTrade) {
+                          const stakeAmount = bankroll * (signal.kellyStake / 100);
+                          const shares = Math.floor(stakeAmount / signal.marketPrice);
                           onSaveTrade({
                             id: crypto.randomUUID(),
                             savedAt: new Date().toISOString(),
                             signal,
                             bankroll,
-                            stakeAmount: bankroll * (signal.kellyStake / 100)
+                            stakeAmount,
+                            entryPrice: signal.marketPrice,
+                            side: signal.side || 'YES',
+                            shares
                           });
                         }
                       }}
@@ -341,8 +462,8 @@ export const Polymarket: React.FC<PolymarketProps> = ({ onSaveTrade, onSaveWalle
                             <div className="w-8 h-8 rounded-full bg-slate-100 flex items-center justify-center group-hover/link:bg-ares-green/10 transition-colors shrink-0">
                               <Wallet className="w-4 h-4 text-slate-400 group-hover/link:text-ares-green transition-colors" />
                             </div>
-                            <span className="font-mono text-xs font-bold text-slate-600 group-hover/link:text-ares-green truncate max-w-[120px]">
-                              {insider.address}
+                            <span className="font-mono text-xs font-bold text-slate-600 group-hover/link:text-ares-green truncate">
+                              {formatAddress(insider.address)}
                             </span>
                             <ExternalLink className="w-3 h-3 text-slate-300 group-hover/link:text-ares-green transition-colors opacity-0 group-hover/link:opacity-100 shrink-0" />
                           </a>
@@ -476,16 +597,18 @@ export const Polymarket: React.FC<PolymarketProps> = ({ onSaveTrade, onSaveWalle
                         <p className="text-sm font-bold mb-1 leading-snug">{trade.market}</p>
                       )}
 
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-2">
+                      <div className="flex items-center justify-between gap-4">
+                        <div className="flex items-center gap-2 min-w-0">
                           <a
                             href={`https://polymarket.com/profile/${trade.address}`}
                             target="_blank"
                             rel="noopener noreferrer"
                             className="text-xs text-slate-400 font-mono hover:text-ares-green transition-colors flex items-center gap-1.5"
                           >
-                            <User className="w-3 h-3 text-slate-600" />
-                            {trade.address}
+                            <User className="w-3 h-3 text-slate-600 shrink-0" />
+                            <span className="truncate max-w-[120px]">
+                              {formatAddress(trade.address)}
+                            </span>
                           </a>
                           <button
                             title="Save wallet"
@@ -505,7 +628,7 @@ export const Polymarket: React.FC<PolymarketProps> = ({ onSaveTrade, onSaveWalle
                             <Bookmark className="w-3 h-3" />
                           </button>
                         </div>
-                        <span className="text-xs font-black text-ares-green">${trade.amount.toLocaleString()}</span>
+                        <span className="text-xs font-black text-ares-green shrink-0">${trade.amount.toLocaleString()}</span>
                       </div>
                     </motion.div>
                   ))}
@@ -560,71 +683,264 @@ export const Polymarket: React.FC<PolymarketProps> = ({ onSaveTrade, onSaveWalle
                     </a>
                   </div>
 
-                  <div className="grid grid-cols-2 gap-4">
-                    <div className="flex-1 bg-emerald-50/50 rounded-xl p-4 border border-emerald-100 flex flex-col justify-center">
-                      <p className="text-[10px] font-black tracking-widest uppercase text-emerald-700 mb-1">Fair Value</p>
-                      <p className="text-xl font-black text-emerald-700">{(selectedMarket.fairValue * 100).toFixed(1)}%</p>
-                    </div>
-                    <div className="flex-1 bg-slate-50/80 rounded-xl p-4 border border-slate-100 flex flex-col justify-center">
-                      <p className="text-[10px] font-black tracking-widest uppercase text-slate-400 mb-1">Market Price</p>
-                      <p className="text-xl font-black text-slate-900">{(selectedMarket.marketPrice * 100).toFixed(1)}%</p>
-                    </div>
+                  {/* Tabs */}
+                  <div className="flex bg-slate-100 p-1 rounded-2xl shrink-0">
+                    {['execution', 'chart', 'activity'].map((tab) => (
+                      <button
+                        key={tab}
+                        onClick={() => setPanelTab(tab as any)}
+                        className={cn(
+                          "flex-1 py-2.5 text-[10px] font-black uppercase tracking-widest rounded-xl transition-all",
+                          panelTab === tab ? "bg-white text-slate-900 shadow-sm" : "text-slate-400 hover:text-slate-600"
+                        )}
+                      >
+                        {tab}
+                      </button>
+                    ))}
                   </div>
 
-                  {/* Risk Manager */}
-                  <div className="space-y-4">
-                    <div className="flex items-center gap-2">
-                      <ShieldCheck className="w-5 h-5 text-ares-green" />
-                      <h4 className="font-bold text-slate-900">Risk Manager</h4>
-                    </div>
+                  <AnimatePresence mode="wait">
+                    <motion.div
+                      key={panelTab}
+                      initial={{ opacity: 0, y: 10 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      exit={{ opacity: 0, y: -10 }}
+                      transition={{ duration: 0.2 }}
+                    >
+                      {panelTab === 'execution' && (
+                        <div className="space-y-8">
+                          <div className="grid grid-cols-2 gap-4">
+                            <div className="flex-1 bg-emerald-50/50 rounded-xl p-4 border border-emerald-100 flex flex-col justify-center">
+                              <p className="text-[10px] font-black tracking-widest uppercase text-emerald-700 mb-1">Fair Value</p>
+                              <p className="text-xl font-black text-emerald-700">{(selectedMarket.fairValue * 100).toFixed(1)}%</p>
+                            </div>
+                            <div className="flex-1 bg-slate-50/80 rounded-xl p-4 border border-slate-100 flex flex-col justify-center">
+                              <p className="text-[10px] font-black tracking-widest uppercase text-slate-400 mb-1">Market Price</p>
+                              <p className="text-xl font-black text-slate-900">{(selectedMarket.marketPrice * 100).toFixed(1)}%</p>
+                            </div>
+                          </div>
 
-                    <div className="p-6 bg-slate-900 rounded-3xl text-white space-y-6">
-                      <div className="space-y-2">
-                        <div className="flex justify-between">
-                          <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Total Bankroll</label>
-                          <span className="text-sm font-black text-ares-green">${bankroll.toLocaleString()}</span>
+                          {/* Risk Manager */}
+                          <div className="space-y-4">
+                            <div className="flex items-center gap-2">
+                              <ShieldCheck className="w-5 h-5 text-ares-green" />
+                              <h4 className="font-bold text-slate-900">Execute Virtual Trade</h4>
+                            </div>
+
+                            <div className="p-6 bg-slate-900 rounded-3xl text-white space-y-6">
+                              <div className="space-y-2">
+                                <div className="flex justify-between">
+                                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Global Bankroll</label>
+                                  <span className="text-sm font-black text-ares-green">${bankroll.toLocaleString()}</span>
+                                </div>
+                                <input
+                                  type="range"
+                                  min="1000"
+                                  max="100000"
+                                  step="1000"
+                                  value={bankroll}
+                                  onChange={(e) => setBankroll(parseInt(e.target.value))}
+                                  className="w-full accent-ares-green h-1.5 bg-white/10 rounded-lg appearance-none cursor-pointer"
+                                />
+                              </div>
+
+                              <div className="pt-6 border-t border-white/10">
+                                <div className="flex justify-between items-center mb-4">
+                                  <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-1.5">
+                                    Kelly Suggestion
+                                    <span className="bg-ares-green/20 text-ares-green px-1.5 py-0.5 rounded text-[8px]">{selectedMarket.kellyStake}%</span>
+                                  </span>
+                                  <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">
+                                    ${(bankroll * selectedMarket.kellyStake / 100).toLocaleString()} limit
+                                  </span>
+                                </div>
+
+                                <div className="flex flex-col gap-2">
+                                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Custom Investment (USD)</label>
+                                  <div className="relative">
+                                    <span className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 font-bold">$</span>
+                                    <input
+                                      type="number"
+                                      min="10"
+                                      value={customStakeAmount || Math.floor(bankroll * selectedMarket.kellyStake / 100)}
+                                      onChange={(e) => setCustomStakeAmount(Number(e.target.value))}
+                                      className="w-full bg-slate-800 border border-slate-700 rounded-xl pl-8 pr-4 py-3 text-white font-bold outline-none focus:border-ares-green focus:ring-1 focus:ring-ares-green transition-all"
+                                    />
+                                  </div>
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+
+                          <div className="flex gap-4">
+                            <button
+                              onClick={() => {
+                                if (onSaveTrade) {
+                                  const stake = customStakeAmount || Math.floor(bankroll * selectedMarket.kellyStake / 100);
+                                  const shares = Math.floor(stake / selectedMarket.marketPrice);
+                                  onSaveTrade({
+                                    id: crypto.randomUUID(),
+                                    savedAt: new Date().toISOString(),
+                                    signal: selectedMarket,
+                                    bankroll,
+                                    stakeAmount: stake,
+                                    entryPrice: selectedMarket.marketPrice,
+                                    side: 'YES',
+                                    shares
+                                  });
+                                  setIsPanelOpen(false);
+                                }
+                              }}
+                              className="flex-1 py-4 bg-emerald-500 text-white font-black text-xs uppercase tracking-widest rounded-2xl hover:bg-emerald-600 transition-all shadow-lg shadow-emerald-500/20"
+                            >
+                              Execute YES
+                            </button>
+                            <button
+                              onClick={() => {
+                                if (onSaveTrade) {
+                                  // For NO side, the effective entry price is (1 - marketPrice)
+                                  const noPrice = 1 - selectedMarket.marketPrice;
+                                  const stake = customStakeAmount || Math.floor(bankroll * selectedMarket.kellyStake / 100);
+                                  const shares = Math.floor(stake / noPrice);
+                                  onSaveTrade({
+                                    id: crypto.randomUUID(),
+                                    savedAt: new Date().toISOString(),
+                                    signal: selectedMarket,
+                                    bankroll,
+                                    stakeAmount: stake,
+                                    entryPrice: noPrice, // Store the NO price as entry
+                                    side: 'NO',
+                                    shares
+                                  });
+                                  setIsPanelOpen(false);
+                                }
+                              }}
+                              className="flex-1 py-4 bg-rose-500 text-white font-black text-xs uppercase tracking-widest rounded-2xl hover:bg-rose-600 transition-all shadow-lg shadow-rose-500/20"
+                            >
+                              Execute NO
+                            </button>
+                          </div>
+
+                          <div className="p-4 bg-amber-50 rounded-2xl border border-amber-100 flex gap-3">
+                            <AlertCircle className="w-5 h-5 text-amber-500 shrink-0" />
+                            <p className="text-[10px] text-amber-700 font-medium leading-relaxed">
+                              Paper trading virtually executes this order instantly at the current market snapshot price. Proceed to Strategy Tracker to monitor convergence.
+                            </p>
+                          </div>
                         </div>
-                        <input
-                          type="range"
-                          min="1000"
-                          max="100000"
-                          step="1000"
-                          value={bankroll}
-                          onChange={(e) => setBankroll(parseInt(e.target.value))}
-                          className="w-full accent-ares-green h-1.5 bg-white/10 rounded-lg appearance-none cursor-pointer"
-                        />
-                      </div>
+                      )}
 
-                      <div className="pt-6 border-t border-white/10">
-                        <div className="flex justify-between items-center mb-4">
-                          <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Kelly Suggestion</span>
-                          <span className="text-xl font-black text-ares-green">{selectedMarket.kellyStake}%</span>
+                      {panelTab === 'activity' && (
+                        <div className="space-y-4">
+                          <h4 className="font-bold text-slate-900 border-b border-slate-100 pb-2">Whale Activity for this Market</h4>
+                          <div className="space-y-4">
+                            {data?.whaleFeed.filter(t => t.market === selectedMarket.marketName).length === 0 ? (
+                              <p className="text-sm font-medium text-slate-400 py-8 text-center">No recent whale activity detected for this specific market.</p>
+                            ) : (
+                              data?.whaleFeed.filter(t => t.market === selectedMarket.marketName).map((trade) => (
+                                <div key={trade.id} className="p-4 bg-slate-50 rounded-2xl border border-slate-100">
+                                  <div className="flex justify-between items-start mb-2">
+                                    <div className="flex items-center gap-2">
+                                      <span className={cn(
+                                        "text-[10px] font-black px-2 py-0.5 rounded-full uppercase tracking-widest",
+                                        trade.side === 'YES' ? "bg-emerald-100 text-emerald-700" : "bg-rose-100 text-rose-700"
+                                      )}>
+                                        {trade.side}
+                                      </span>
+                                      <span className="text-xs font-black text-slate-900">${trade.amount.toLocaleString()}</span>
+                                    </div>
+                                    <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">{trade.time}</span>
+                                  </div>
+                                  <div className="flex items-center justify-between mt-3 flex-wrap gap-2">
+                                    <a
+                                      href={`https://polymarket.com/profile/${trade.address}`}
+                                      target="_blank"
+                                      rel="noopener noreferrer"
+                                      className="text-xs text-slate-400 font-mono hover:text-ares-green transition-colors flex items-center gap-1.5"
+                                    >
+                                      <User className="w-3 h-3 text-slate-400" />
+                                      {trade.address.substring(0, 10)}...{trade.address.slice(-4)}
+                                    </a>
+                                    <button
+                                      title="Save wallet"
+                                      className="px-2 py-1 bg-white border border-slate-200 text-slate-400 text-[9px] font-black uppercase tracking-widest rounded-lg hover:bg-amber-50 hover:text-amber-500 hover:border-amber-200 transition-all flex items-center gap-1"
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        if (onSaveWallet) {
+                                          onSaveWallet({
+                                            id: trade.address,
+                                            savedAt: new Date().toISOString(),
+                                            address: trade.address,
+                                            source: 'whale',
+                                          });
+                                          alert(`Wallet ${trade.address.substring(0, 6)}... saved!`);
+                                        }
+                                      }}
+                                    >
+                                      <Bookmark className="w-3 h-3" /> Save
+                                    </button>
+                                  </div>
+                                </div>
+                              ))
+                            )}
+                          </div>
                         </div>
-                        <div className="flex justify-between items-center">
-                          <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Recommended Stake</span>
-                          <span className="text-2xl font-black text-white">
-                            ${(bankroll * selectedMarket.kellyStake / 100).toLocaleString()}
-                          </span>
+                      )}
+
+                      {panelTab === 'chart' && (
+                        <div className="space-y-4">
+                          <h4 className="font-bold text-slate-900 border-b border-slate-100 pb-2">Historical Convergence</h4>
+                          <div className="h-64 bg-white rounded-2xl border border-slate-100 p-4">
+                            <ResponsiveContainer width="100%" height="100%">
+                              <LineChart data={chartData} margin={{ top: 5, right: 5, bottom: 5, left: -20 }}>
+                                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+                                <XAxis
+                                  dataKey="date"
+                                  axisLine={false}
+                                  tickLine={false}
+                                  tick={{ fontSize: 10, fill: '#94a3b8' }}
+                                  minTickGap={20}
+                                />
+                                <YAxis
+                                  domain={[0, 100]}
+                                  axisLine={false}
+                                  tickLine={false}
+                                  tick={{ fontSize: 10, fill: '#94a3b8' }}
+                                  tickFormatter={(val) => `${val}%`}
+                                />
+                                <Tooltip
+                                  contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)' }}
+                                  formatter={(value: number) => [`${value.toFixed(1)}%`]}
+                                />
+                                <Line
+                                  name="Fair Value"
+                                  type="monotone"
+                                  dataKey="fairValue"
+                                  stroke="#10b981"
+                                  strokeWidth={3}
+                                  dot={false}
+                                  activeDot={{ r: 6, fill: '#10b981', stroke: '#fff', strokeWidth: 2 }}
+                                />
+                                <Line
+                                  name="Market Price"
+                                  type="monotone"
+                                  dataKey="marketPrice"
+                                  stroke="#94a3b8"
+                                  strokeWidth={2}
+                                  strokeDasharray="5 5"
+                                  dot={false}
+                                  activeDot={{ r: 4, fill: '#94a3b8', stroke: '#fff', strokeWidth: 2 }}
+                                />
+                              </LineChart>
+                            </ResponsiveContainer>
+                          </div>
+                          <p className="text-[10px] text-slate-400 text-justify mt-2">
+                            This chart maps the divergence between the Ares AI Fair Value model (Green) and the Polymarket Market Price (Gray) over time. Wider gaps represent higher Edge/EV opportunities.
+                          </p>
                         </div>
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="flex gap-4">
-                    <button className="flex-1 py-4 bg-emerald-500 text-white font-black text-xs uppercase tracking-widest rounded-2xl hover:bg-emerald-600 transition-all shadow-lg shadow-emerald-500/20">
-                      Buy YES
-                    </button>
-                    <button className="flex-1 py-4 bg-rose-500 text-white font-black text-xs uppercase tracking-widest rounded-2xl hover:bg-rose-600 transition-all shadow-lg shadow-rose-500/20">
-                      Buy NO
-                    </button>
-                  </div>
-
-                  <div className="p-4 bg-amber-50 rounded-2xl border border-amber-100 flex gap-3">
-                    <AlertCircle className="w-5 h-5 text-amber-500 shrink-0" />
-                    <p className="text-[10px] text-amber-700 font-medium leading-relaxed">
-                      Trading on prediction markets involves high risk. Ensure you have verified the market resolution conditions before executing.
-                    </p>
-                  </div>
+                      )}
+                    </motion.div>
+                  </AnimatePresence>
                 </div>
               )}
             </motion.div>

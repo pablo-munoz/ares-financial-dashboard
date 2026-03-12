@@ -156,7 +156,7 @@ async function fetchLivePrices() {
   }
 }
 
-async function fetchPolymarketTrades(limit: number = 500): Promise<any[]> {
+async function fetchPolymarketTrades(limit: number = 2000): Promise<any[]> {
   const url = `https://data-api.polymarket.com/trades?limit=${limit}`;
   const res = await fetch(url, { headers: { Accept: "application/json" } });
   if (!res.ok) {
@@ -233,6 +233,7 @@ db.exec(`
   CREATE TABLE IF NOT EXISTS market_resolutions (
     slug TEXT PRIMARY KEY,
     winningOutcome TEXT,
+    outcomePrice REAL,
     resolved_at INTEGER
   );
   CREATE INDEX IF NOT EXISTS idx_resolutions_resolved_at ON market_resolutions(resolved_at);
@@ -256,8 +257,8 @@ const insertTradeStmt = db.prepare(`
 `);
 
 const insertResolutionStmt = db.prepare(`
-  INSERT OR REPLACE INTO market_resolutions (slug, winningOutcome, resolved_at)
-  VALUES (?, ?, ?)
+  INSERT OR REPLACE INTO market_resolutions (slug, winningOutcome, outcomePrice, resolved_at)
+  VALUES (?, ?, ?, ?)
 `);
 
 db.exec(`
@@ -329,11 +330,23 @@ export async function syncClosedMarkets() {
     const insertMany = db.transaction((rows: any[]) => {
       for (const m of rows) {
         let outcome = m.winningOutcome;
-        if (outcome === "0") outcome = "YES";
-        else if (outcome === "1") outcome = "NO";
+        let outcomePrice = 1.0; // Default to YES win
+
+        // Gamma API winningOutcome: "0" = YES, "1" = NO, or "0, 1" for push/split
+        if (outcome === "0") {
+          outcome = "YES";
+          outcomePrice = 1.0;
+        } else if (outcome === "1") {
+          outcome = "NO";
+          outcomePrice = 0.0; // Price of YES side when NO wins is 0
+        } else if (outcome && (outcome.includes("0") && outcome.includes("1"))) {
+          // Push/Split scenario
+          outcome = "SPLIT";
+          outcomePrice = 0.5;
+        }
 
         const resolvedAt = m.closedTime ? Math.floor(Date.parse(m.closedTime) / 1000) : Math.floor(Date.now() / 1000);
-        insertResolutionStmt.run(m.slug, outcome, resolvedAt);
+        insertResolutionStmt.run(m.slug, outcome, outcomePrice, resolvedAt);
       }
     });
 
@@ -911,7 +924,7 @@ async function refreshPolymarketDataFromApi(opts?: {
 
   let trades: any[] = [];
   try {
-    trades = await fetchPolymarketTrades(500);
+    trades = await fetchPolymarketTrades(2000);
   } catch (err) {
     console.warn("Polymarket trades fetch failed; recomputing from DB snapshot only:", err);
     trades = [];
@@ -984,7 +997,7 @@ async function refreshPolymarketDataFromApi(opts?: {
         (max, tr: any) => Math.max(max, Number(tr.timestamp) || 0),
         0
       );
-      const cutoffRecent = latestTs - 30 * 60; // last 30 minutes, in seconds
+      const cutoffRecent = latestTs - 60 * 60; // last 60 minutes, in seconds
 
       // Recent traded notional (all sides) used for scoring and filtering
       const recent = ts.filter(
@@ -1000,7 +1013,7 @@ async function refreshPolymarketDataFromApi(opts?: {
     .filter((m): m is NonNullable<typeof m> => m !== null)
     // Filter out very illiquid / inactive markets
     .filter((m) => {
-      if (m.volumeRecent <= 50) return false;
+      if (m.volumeRecent <= 20) return false;
       // Exclude sports/financial up-or-down slug noise
       const titleL = (m.title ?? m.slug ?? '').toLowerCase();
       if (titleL.includes('up or down') || titleL.includes('up-or-down') || titleL.includes('price above') || titleL.includes('price below')) return false;
@@ -1088,20 +1101,18 @@ async function refreshPolymarketDataFromApi(opts?: {
 
     // --- ALPHA V4.0: Improved Fair Value Estimation ---
 
-    // 1. Base Fair Value
-    // Warm: EMA-smoothed longVwap with mean-reversion
-    // Cold: Use the trade-weighted price trend as a directional seed
-    let baseFair: number;
-    if (prevStats.sampleCount > 0) {
-      baseFair = longVwap + (0.25 * (longVwap - priceMid));
-    } else {
-      // Cold start: compare last-traded price vs all-trade VWAP to detect recent momentum
-      const lastTrade = [...tradesForMarket].sort((a: any, b: any) =>
-        (Number(b.timestamp) || 0) - (Number(a.timestamp) || 0)
-      )[0];
-      const lastPrice = Number(lastTrade?.price) || priceMid;
-      // If last trade is above VWAP, fair value should be higher; and vice versa
-      baseFair = priceMid + (0.5 * (lastPrice - priceMid));
+    // 1. Base Fair Value (Bayesian Anchoring)
+    // We treat the market price (priceMid) as our Prior.
+    // We only shift it towards longVwap if we have high confidence (sampleCount).
+    const confidence = Math.min(1.0, prevStats.sampleCount / 20); // 100% confidence at 20 samples
+
+    // Instead of extrapolation, we use anchoring:
+    // baseFair = (confidence * longVwap) + ((1 - confidence) * priceMid)
+    let baseFair = (confidence * longVwap) + ((1 - confidence) * priceMid);
+
+    if (prevStats.sampleCount === 0) {
+      // Cold start: extremely tight anchoring to market price
+      baseFair = priceMid;
     }
 
     // 2. Order Flow Imbalance — ratio-based (not absolute dollar)
@@ -1135,12 +1146,20 @@ async function refreshPolymarketDataFromApi(opts?: {
       sectorAnchor = -0.01;
     }
 
-    // 5. Assemble Fair Value
-    // flowRatio is already in [-1,1], multiply by 0.08 to shift fair value by up to 8pp
-    const fairValue = Math.min(
-      0.99,
-      Math.max(0.01, baseFair + (0.08 * flowRatio) + sharpShift + sectorAnchor)
+    // 5. Assemble Fair Value with Gravity Constraint
+    // The "Gravity" rule: Alpha should almost never claim >15% edge over market
+    const rawFair = baseFair + (0.05 * flowRatio) + sharpShift + sectorAnchor;
+
+    // Constraints:
+    // 1. Must be [0.01, 0.99]
+    // 2. Gravitational pull: cap deviation from market at ±15%
+    const maxDeviation = isSportsMarket(m.title) ? 0.10 : 0.15; // Tighter cap for sports
+    const gravityFair = Math.min(
+      priceShort + maxDeviation,
+      Math.max(priceShort - maxDeviation, rawFair)
     );
+
+    const fairValue = Math.min(0.99, Math.max(0.01, gravityFair));
     const priceNow = priceShort;
 
     // 6. EV Calculation (no hard threshold — let Kelly sizing handle noise)
@@ -1167,6 +1186,8 @@ async function refreshPolymarketDataFromApi(opts?: {
       marketPrice: priceNow,
       ev,
       kellyStake: stake,
+      volatility: rollingVolatility,
+      volume: m.volumeRecent
     };
   }).filter((s) => s) as Array<{
     slug: string;
@@ -1176,6 +1197,8 @@ async function refreshPolymarketDataFromApi(opts?: {
     marketPrice: number;
     ev: number;
     kellyStake: number;
+    volatility: number;
+    volume: number;
   }>;
 
   console.log(`[Alpha] Raw signals: ${rawSignals.length}, EV range: [${rawSignals.map(s => s.ev.toFixed(2)).slice(0, 10).join(', ')}...]`);
@@ -1203,17 +1226,64 @@ async function refreshPolymarketDataFromApi(opts?: {
 
   polymarketLastAlphaSlugs = selectedSignals.map((s) => s.slug);
 
-  const alphaSignals: PolymarketAlphaSignal[] = selectedSignals.map(
-    (s, idx) => ({
-      id: s.slug ?? `pm-${idx}`,
-      eventSlug: s.eventSlug ?? s.slug,
-      marketName: s.title,
-      fairValue: s.fairValue,
-      marketPrice: s.marketPrice,
-      ev: Number(s.ev.toFixed(1)),
-      kellyStake: Number(s.kellyStake.toFixed(1)),
-    })
-  );
+  const alphaSignals: PolymarketAlphaSignal[] = await Promise.all(selectedSignals.map(
+    async (s, idx) => {
+      let livePrice = s.marketPrice;
+
+      // Attempt live Gamma refresh for 100% accuracy on the dashboard
+      try {
+        const res = await fetch(`https://gamma-api.polymarket.com/markets?slug=${s.slug}&limit=1`, {
+          headers: { Accept: "application/json" }
+        });
+        if (res.ok) {
+          const markets = await res.json();
+          if (Array.isArray(markets) && markets.length > 0) {
+            const m = markets[0];
+            if (typeof m.outcomePrices === 'string') {
+              const prices = JSON.parse(m.outcomePrices);
+              if (prices.length > 0) {
+                livePrice = parseFloat(prices[0]);
+                // Update global cache so Execute buttons use this accurate price
+                polymarketLastPrices[s.slug] = livePrice;
+              }
+            }
+          }
+        }
+      } catch (e) {
+        console.warn(`[Alpha] Live price refresh failed for ${s.slug}:`, e);
+      }
+
+      // Re-apply Gravity gravity constraint to Fair Value based on livePrice
+      const maxDev = isSportsMarket(s.title) ? 0.10 : 0.15;
+      const calibratedFair = Math.min(
+        livePrice + maxDev,
+        Math.max(livePrice - maxDev, s.fairValue)
+      );
+      const finalFair = Math.min(0.99, Math.max(0.01, calibratedFair));
+
+      // Re-calculate EV with the most accurate price available
+      const updatedEv = (finalFair - livePrice) * 100;
+
+      // Re-calculate Risk-Adjusted Kelly Stake with live price
+      const volFactor = Math.max(0.01, s.volatility * 100);
+      const liquidityPenalty = Math.min(1, s.volume / 5000);
+      let updatedStake = Math.max(0, Math.min(10, (Math.abs(updatedEv) / volFactor) * liquidityPenalty));
+
+      if (Math.abs(updatedEv) >= 3 && updatedStake > 0 && updatedStake < 1) {
+        updatedStake = 1;
+      }
+
+      return {
+        id: s.slug ?? `pm-${idx}`,
+        eventSlug: s.eventSlug ?? s.slug,
+        marketName: s.title,
+        fairValue: finalFair,
+        marketPrice: livePrice,
+        ev: Number(updatedEv.toFixed(1)),
+        kellyStake: Number(updatedStake.toFixed(1)),
+      };
+    }
+  ));
 
   // Whale feed: top recent large trades
   const whaleFeed: PolymarketWhaleTrade[] = trades
@@ -1615,6 +1685,100 @@ async function startServer() {
     } catch (err) {
       console.error("Backtest failed:", err);
       res.status(500).json({ error: "Backtest failed" });
+    }
+  });
+
+  app.post("/api/polymarket/tracker", async (req, res) => {
+    try {
+      const { slugs } = req.body;
+      if (!Array.isArray(slugs)) {
+        return res.status(400).json({ error: "slugs must be an array" });
+      }
+
+      await Promise.all(
+        slugs.map(async (slug) => {
+          if (!polymarketMarketMeta[slug]) {
+            await fetchGammaMarketMetaBySlug(slug);
+          }
+        })
+      );
+
+      const resolutionStmt = db.prepare("SELECT winningOutcome, outcomePrice FROM market_resolutions WHERE slug = ?");
+      const insertRes = db.prepare("INSERT OR REPLACE INTO market_resolutions (slug, winningOutcome, outcomePrice, resolved_at) VALUES (?, ?, ?, ?)");
+
+      const results = await Promise.all(slugs.map(async (slug) => {
+        // 1. Check local DB first (synchronous better-sqlite3)
+        let resolvedRow = resolutionStmt.get(slug) as { winningOutcome: string; outcomePrice: number } | undefined;
+
+        // 2. Fallback: if not in local DB, query Gamma API live
+        if (!resolvedRow) {
+          try {
+            const gammaRes = await fetch(`https://gamma-api.polymarket.com/markets?slug=${slug}&limit=1`, {
+              headers: { Accept: "application/json" }
+            });
+            if (gammaRes.ok) {
+              const markets = await gammaRes.json();
+              if (Array.isArray(markets) && markets.length > 0) {
+                const m = markets[0];
+
+                // Parse live outcome prices from Gamma
+                let yesPriceFromGamma = 0;
+                if (typeof m.outcomePrices === 'string') {
+                  try {
+                    const prices = JSON.parse(m.outcomePrices);
+                    if (prices.length > 0) {
+                      yesPriceFromGamma = parseFloat(prices[0]);
+                      polymarketLastPrices[slug] = yesPriceFromGamma;
+                    }
+                  } catch { }
+                }
+
+                // Determine if market is resolved via winningOutcome OR closed flag
+                const hasWinningOutcome = m.winningOutcome !== null && m.winningOutcome !== undefined && m.winningOutcome !== '';
+                const isGammaClosed = m.closed === true;
+
+                if (hasWinningOutcome || isGammaClosed) {
+                  let outcome = 'SPLIT';
+                  let outcomePrice = 0.5;
+
+                  if (hasWinningOutcome) {
+                    const wo = m.winningOutcome;
+                    if (wo === "0") { outcome = "YES"; outcomePrice = 1.0; }
+                    else if (wo === "1") { outcome = "NO"; outcomePrice = 0.0; }
+                    else if (wo.includes("0") && wo.includes("1")) { outcome = "SPLIT"; outcomePrice = 0.5; }
+                  } else if (isGammaClosed) {
+                    // No winningOutcome but closed — derive from outcomePrices
+                    if (yesPriceFromGamma >= 0.95) { outcome = "YES"; outcomePrice = 1.0; }
+                    else if (yesPriceFromGamma <= 0.05) { outcome = "NO"; outcomePrice = 0.0; }
+                    else { outcome = "SPLIT"; outcomePrice = yesPriceFromGamma; }
+                  }
+
+                  const resolvedAt = m.closedTime ? Math.floor(Date.parse(m.closedTime) / 1000) : Math.floor(Date.now() / 1000);
+                  insertRes.run(slug, outcome, outcomePrice, resolvedAt);
+                  resolvedRow = { winningOutcome: outcome, outcomePrice };
+                }
+              }
+            }
+          } catch (e) {
+            console.error(`[Tracker] Gamma fallback failed for ${slug}:`, e);
+          }
+        }
+
+        const isClosed = !!resolvedRow;
+        let livePrice = resolvedRow ? resolvedRow.outcomePrice : (polymarketLastPrices[slug] || 0);
+
+        return {
+          slug,
+          price: livePrice,
+          closed: isClosed,
+          resolvedOutcome: isClosed ? resolvedRow!.winningOutcome : null
+        };
+      }));
+
+      res.json(results);
+    } catch (err) {
+      console.error("Tracker API failed:", err);
+      res.status(500).json({ error: "Failed to fetch tracker data" });
     }
   });
 

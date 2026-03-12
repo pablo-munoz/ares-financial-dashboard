@@ -1,5 +1,5 @@
 import React, { useState, useRef } from 'react';
-import { Trash2, TrendingUp, ArrowUpRight, Zap, HelpCircle, Wallet, User, Download, Upload } from 'lucide-react';
+import { Trash2, TrendingUp, ArrowUpRight, Zap, HelpCircle, Wallet, User, Download, Upload, Edit2 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { SavedAlphaTrade, SavedWallet } from '../types';
 import { cn } from '../lib/utils';
@@ -9,6 +9,7 @@ interface SavedTradesProps {
     wallets: SavedWallet[];
     onDeleteTrade: (id: string) => void;
     onDeleteWallet: (id: string) => void;
+    onUpdateTrade?: (trade: SavedAlphaTrade) => void;
     onNavigatePolymarket: () => void;
     onExport?: () => void;
     onImport?: (data: any) => void;
@@ -19,12 +20,45 @@ export const SavedTrades: React.FC<SavedTradesProps> = ({
     wallets,
     onDeleteTrade,
     onDeleteWallet,
+    onUpdateTrade,
     onNavigatePolymarket,
     onExport,
     onImport
 }) => {
     const [activeView, setActiveView] = useState<'trades' | 'wallets'>('trades');
     const fileInputRef = useRef<HTMLInputElement>(null);
+    const [editingTradeId, setEditingTradeId] = useState<string | null>(null);
+    const [editForm, setEditForm] = useState<{ side: 'YES' | 'NO', shares: number, entryPrice: number }>({ side: 'YES', shares: 0, entryPrice: 0 });
+    const [liveData, setLiveData] = useState<Record<string, { price: number, closed: boolean, resolvedOutcome: string | null }>>({});
+
+    React.useEffect(() => {
+        if (trades.length === 0) return;
+
+        const fetchLiveTracker = async () => {
+            try {
+                const slugs = trades.map(t => t.signal.id).filter(Boolean);
+                const res = await fetch('/api/polymarket/tracker', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ slugs })
+                });
+                if (res.ok) {
+                    const data = await res.json();
+                    const liveMap: Record<string, any> = {};
+                    data.forEach((d: any) => {
+                        liveMap[d.slug] = d;
+                    });
+                    setLiveData(liveMap);
+                }
+            } catch (err) {
+                console.error("Failed to fetch live tracker data", err);
+            }
+        };
+
+        fetchLiveTracker();
+        const interval = setInterval(fetchLiveTracker, 10000);
+        return () => clearInterval(interval);
+    }, [trades]);
 
     const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
         const file = e.target.files?.[0];
@@ -78,8 +112,8 @@ export const SavedTrades: React.FC<SavedTradesProps> = ({
         <div className="space-y-8 animate-in fade-in duration-700">
             <header className="flex flex-col md:flex-row md:items-end justify-between gap-6">
                 <div>
-                    <h1 className="text-3xl font-extrabold text-slate-900 font-display tracking-tight mb-2">Saved Items</h1>
-                    <p className="text-slate-500">Track your bookmarked Alpha Signals and smart money wallets.</p>
+                    <h1 className="text-3xl font-extrabold text-slate-900 font-display tracking-tight mb-2">Strategy Tracker</h1>
+                    <p className="text-slate-500">Paper trade your bookmarked Alpha Signals against live market logic.</p>
                 </div>
 
                 <div className="flex items-center gap-4">
@@ -145,86 +179,162 @@ export const SavedTrades: React.FC<SavedTradesProps> = ({
                     {activeView === 'trades' && (
                         trades.length === 0 ? renderEmptyState('trades') : (
                             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                                {trades.map((trade, i) => (
-                                    <motion.div
-                                        key={trade.id}
-                                        initial={{ opacity: 0, scale: 0.95 }}
-                                        animate={{ opacity: 1, scale: 1 }}
-                                        transition={{ delay: i * 0.05 }}
-                                        className="bg-white rounded-3xl border border-slate-100 shadow-sm hover:shadow-xl transition-all p-6 flex flex-col"
-                                    >
-                                        <div className="flex justify-between items-start mb-3">
-                                            <span className="px-3 py-1 bg-emerald-50 text-emerald-600 text-[10px] font-black rounded-full uppercase tracking-widest">
-                                                EV+ {trade.signal.ev}%
-                                            </span>
-                                            <div className="flex items-center gap-1">
-                                                <a
-                                                    href={`https://polymarket.com/event/${trade.signal.eventSlug ?? trade.signal.id}`}
-                                                    target="_blank"
-                                                    rel="noopener noreferrer"
-                                                    className="p-1.5 bg-slate-50 rounded-lg hover:bg-ares-green/10 transition-colors"
-                                                    title="Open on Polymarket"
-                                                >
-                                                    <ArrowUpRight className="w-3.5 h-3.5 text-slate-400 hover:text-ares-green" />
-                                                </a>
-                                                <button
-                                                    onClick={() => onDeleteTrade(trade.id)}
-                                                    className="p-1.5 bg-slate-50 rounded-lg text-slate-400 hover:text-rose-500 hover:bg-rose-50 transition-colors"
-                                                    title="Delete trade"
-                                                >
-                                                    <Trash2 className="w-3.5 h-3.5" />
-                                                </button>
-                                            </div>
-                                        </div>
+                                {trades.map((trade, i) => {
+                                    const isEditing = editingTradeId === trade.id;
+                                    const hasPosition = trade.shares !== undefined && trade.shares > 0;
 
-                                        <h3 className="font-bold text-slate-900 mb-1 line-clamp-2 min-h-[3rem]">
-                                            {trade.signal.marketName}
-                                        </h3>
-                                        <p className="text-[10px] text-slate-400 font-semibold mb-4">
-                                            Saved {new Date(trade.savedAt).toLocaleDateString()}, {new Date(trade.savedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                                        </p>
+                                    const slug = trade.signal.id;
+                                    const liveInf = liveData[slug];
+                                    const isClosed = liveInf?.closed;
 
-                                        <div className="grid grid-cols-2 gap-4 pt-4 border-t border-slate-50">
-                                            <div>
-                                                <div className="flex items-center gap-1.5 mb-1 text-slate-400">
-                                                    <p className="text-[10px] font-black tracking-widest uppercase">Fair Value</p>
-                                                    <HelpCircle className="w-3 h-3 text-slate-300" />
+                                    // Price definitions
+                                    const entryPrice = trade.entryPrice ?? trade.signal.marketPrice;
+                                    const fairValue = trade.signal.fairValue;
+                                    const livePrice = liveInf?.price ?? trade.signal.marketPrice;
+
+                                    let unrealizedPnL = 0;
+                                    let roi = 0;
+
+                                    if (hasPosition && trade.side) {
+                                        const costBasis = trade.shares! * entryPrice;
+                                        const currentValue = trade.shares! * livePrice;
+                                        unrealizedPnL = currentValue - costBasis;
+                                        roi = (costBasis > 0) ? (unrealizedPnL / costBasis) * 100 : 0;
+                                    }
+
+                                    // Visualizer Progress Bar Math
+                                    const minP = Math.min(entryPrice, livePrice, fairValue);
+                                    const maxP = Math.max(entryPrice, livePrice, fairValue);
+                                    const range = Math.max(0.01, maxP - minP); // avoid div by 0
+
+                                    const getPos = (p: number) => ((p - minP) / range) * 100;
+
+                                    const entryPos = getPos(entryPrice);
+                                    const livePos = getPos(livePrice);
+                                    const fairPos = getPos(fairValue);
+
+                                    // Determines if market moved towards fair value
+                                    const edgeIsWorking = (fairValue > entryPrice && livePrice > entryPrice) ||
+                                        (fairValue < entryPrice && livePrice < entryPrice);
+
+                                    return (
+                                        <motion.div
+                                            key={trade.id}
+                                            initial={{ opacity: 0, scale: 0.95 }}
+                                            animate={{ opacity: 1, scale: 1 }}
+                                            transition={{ delay: i * 0.05 }}
+                                            className={cn("bg-white rounded-3xl border border-slate-100 shadow-sm hover:shadow-xl transition-all p-6 flex flex-col relative overflow-hidden", isClosed && "opacity-80")}
+                                        >
+                                            {isClosed && (
+                                                <div className="absolute inset-0 z-10 bg-slate-50/50 backdrop-blur-[2px] pointer-events-none flex items-center justify-center">
+                                                    <div className={cn(
+                                                        "px-6 py-2 rounded-2xl font-black text-2xl uppercase tracking-[0.2em] transform -rotate-12 shadow-xl border-4",
+                                                        liveInf.resolvedOutcome === 'SPLIT' ? "text-amber-500 bg-amber-50 border-amber-200" :
+                                                            liveInf.resolvedOutcome === trade.side ? "text-emerald-500 bg-emerald-50 border-emerald-200" :
+                                                                "text-rose-500 bg-rose-50 border-rose-200"
+                                                    )}>
+                                                        {liveInf.resolvedOutcome === 'SPLIT' ? "PUSH" :
+                                                            liveInf.resolvedOutcome === trade.side ? "WON" : "LOST"}
+                                                    </div>
                                                 </div>
-                                                <p className="text-lg font-black text-ares-green">
-                                                    {(trade.signal.fairValue * 100).toFixed(1)}%
-                                                </p>
-                                            </div>
-                                            <div>
-                                                <div className="flex items-center gap-1.5 mb-1 text-slate-400">
-                                                    <p className="text-[10px] font-black tracking-widest uppercase">Market Price</p>
-                                                    <HelpCircle className="w-3 h-3 text-slate-300" />
-                                                </div>
-                                                <p className="text-lg font-black text-slate-900">
-                                                    {(trade.signal.marketPrice * 100).toFixed(1)}%
-                                                </p>
-                                            </div>
-                                        </div>
+                                            )}
 
-                                        <div className="mt-4 p-3 bg-slate-900 rounded-2xl flex items-center justify-between">
-                                            <div>
-                                                <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-0.5">
-                                                    Kelly Stake
-                                                </span>
-                                                <span className="text-white font-black text-sm">
-                                                    {trade.signal.kellyStake.toFixed(1)}%
-                                                </span>
+                                            <div className="flex justify-between items-start mb-3">
+                                                <div className="flex gap-2">
+                                                    <span className="px-3 py-1 bg-slate-100 text-slate-600 text-[10px] font-black rounded-full uppercase tracking-widest">
+                                                        EDGE {(Math.abs(fairValue - entryPrice) * 100).toFixed(1)}%
+                                                    </span>
+                                                    {trade.side && (
+                                                        <span className={cn(
+                                                            "px-3 py-1 text-[10px] font-black rounded-full uppercase tracking-widest",
+                                                            trade.side === 'YES' ? "bg-blue-50 text-blue-600" : "bg-rose-50 text-rose-600"
+                                                        )}>
+                                                            {trade.side}
+                                                        </span>
+                                                    )}
+                                                </div>
+                                                <div className="flex items-center gap-1 z-20">
+                                                    <a
+                                                        href={`https://polymarket.com/event/${trade.signal.eventSlug ?? trade.signal.id}`}
+                                                        target="_blank"
+                                                        rel="noopener noreferrer"
+                                                        className="p-1.5 bg-slate-50 rounded-lg hover:bg-ares-green/10 transition-colors pointer-events-auto"
+                                                        title="Open on Polymarket"
+                                                    >
+                                                        <ArrowUpRight className="w-3.5 h-3.5 text-slate-400 hover:text-ares-green" />
+                                                    </a>
+                                                    <button
+                                                        onClick={() => onDeleteTrade(trade.id)}
+                                                        className="p-1.5 bg-slate-50 rounded-lg text-slate-400 hover:text-rose-500 hover:bg-rose-50 transition-colors pointer-events-auto"
+                                                        title="Delete trade"
+                                                    >
+                                                        <Trash2 className="w-3.5 h-3.5" />
+                                                    </button>
+                                                </div>
                                             </div>
-                                            <div className="text-right">
-                                                <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-0.5">
-                                                    Amount
+
+                                            <h3 className="font-bold text-slate-900 mb-1 line-clamp-2 min-h-[3rem]">
+                                                {trade.signal.marketName}
+                                            </h3>
+                                            <p className="text-[10px] text-slate-400 font-semibold mb-6 flex justify-between">
+                                                <span>Saved {new Date(trade.savedAt).toLocaleDateString()}</span>
+                                                <span className="flex items-center gap-1">
+                                                    <div className={cn("w-1.5 h-1.5 rounded-full", isClosed ? "bg-slate-300" : "bg-ares-green animate-pulse")} />
+                                                    {isClosed ? 'Resolved' : 'Live'}
                                                 </span>
-                                                <span className="text-ares-green font-black text-sm">
-                                                    {formatCurrency(trade.stakeAmount)}
-                                                </span>
+                                            </p>
+
+                                            {/* Edge Visualizer */}
+                                            <div className="mb-6">
+                                                <div className="h-1.5 bg-slate-100 rounded-full relative w-full mb-8">
+                                                    {/* Track connection from entry to live */}
+                                                    <div
+                                                        className={cn("absolute h-full rounded-full transition-all duration-1000", edgeIsWorking ? "bg-emerald-400" : "bg-rose-400")}
+                                                        style={{
+                                                            left: `${Math.min(entryPos, livePos)}%`,
+                                                            width: `${Math.abs(livePos - entryPos)}%`
+                                                        }}
+                                                    />
+
+                                                    {/* Nodes */}
+                                                    <div className="absolute top-1/2 -translate-y-1/2 w-3 h-3 bg-slate-400 rounded-full outline outline-4 outline-white shadow-sm transition-all duration-1000" style={{ left: `calc(${entryPos}% - 6px)` }}>
+                                                        <div className="absolute top-4 left-1/2 -translate-x-1/2 text-[9px] font-black text-slate-400 uppercase tracking-widest whitespace-nowrap">Entry {(entryPrice * 100).toFixed(1)}</div>
+                                                    </div>
+
+                                                    <div className="absolute top-1/2 -translate-y-1/2 w-3 h-3 bg-indigo-500 rounded-full outline outline-4 outline-white shadow-sm transition-all duration-1000" style={{ left: `calc(${fairPos}% - 6px)` }}>
+                                                        <div className="absolute top-4 left-1/2 -translate-x-1/2 text-[9px] font-black text-indigo-500 uppercase tracking-widest whitespace-nowrap">Fair {(fairValue * 100).toFixed(1)}</div>
+                                                    </div>
+
+                                                    <div className="absolute top-1/2 -translate-y-1/2 w-4 h-4 bg-slate-900 rounded-full outline outline-4 outline-white shadow-md z-10 transition-all duration-1000" style={{ left: `calc(${livePos}% - 8px)` }}>
+                                                        <div className={cn("absolute -top-6 left-1/2 -translate-x-1/2 text-[10px] font-black uppercase tracking-widest whitespace-nowrap px-2 py-0.5 rounded-md text-white", edgeIsWorking ? "bg-emerald-500" : "bg-rose-500")}>{(livePrice * 100).toFixed(1)}</div>
+                                                    </div>
+                                                </div>
                                             </div>
-                                        </div>
-                                    </motion.div>
-                                ))}
+
+                                            {/* PqL Metrics */}
+                                            {hasPosition && (
+                                                <div className="mt-auto p-4 bg-slate-900 rounded-2xl flex items-center justify-between">
+                                                    <div>
+                                                        <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-1">
+                                                            {isClosed ? 'Realized PnL' : 'Unrealized'}
+                                                        </span>
+                                                        <span className={cn("text-lg font-black", unrealizedPnL >= 0 ? "text-emerald-400" : "text-rose-400")}>
+                                                            {unrealizedPnL >= 0 ? '+' : ''}{formatCurrency(unrealizedPnL)}
+                                                        </span>
+                                                    </div>
+                                                    <div className="text-right">
+                                                        <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-1">
+                                                            ROI
+                                                        </span>
+                                                        <span className={cn("text-lg font-black", roi >= 0 ? "text-emerald-400" : "text-rose-400")}>
+                                                            {roi >= 0 ? '+' : ''}{roi.toFixed(1)}%
+                                                        </span>
+                                                    </div>
+                                                </div>
+                                            )}
+                                        </motion.div>
+                                    );
+                                })}
                             </div>
                         )
                     )}

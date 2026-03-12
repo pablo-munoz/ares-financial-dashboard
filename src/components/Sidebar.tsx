@@ -35,7 +35,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab }) => 
         { id: 'backtest', icon: History, label: 'Backtesting' },
         { id: 'indices', icon: Search, label: 'Indices Search' },
         { id: 'polymarket', icon: Zap, label: 'Polymarket Alpha' },
-        { id: 'savedTrades', icon: ClipboardList, label: 'Saved Trades' },
+        { id: 'savedTrades', icon: ClipboardList, label: 'Strategy Tracker' },
         { id: 'veo', icon: Video, label: 'AI Video (Veo)' },
       ].map((item) => (
         <button

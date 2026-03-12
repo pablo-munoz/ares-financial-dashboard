@@ -60,10 +60,12 @@ export interface PolymarketAlphaSignal {
   id: string;
   eventSlug?: string;
   marketName: string;
+  category?: string;
   fairValue: number;    // 0–1 probability
   marketPrice: number;  // 0–1 market price
   ev: number;           // edge in percentage points
   kellyStake: number;   // suggested Kelly fraction in %
+  side: 'YES' | 'NO';   // recommended side to bet
 }
 
 export interface PolymarketInsider {
@@ -122,6 +124,9 @@ export interface SavedAlphaTrade {
   signal: PolymarketAlphaSignal;
   bankroll: number;
   stakeAmount: number;
+  side?: 'YES' | 'NO';
+  shares?: number;
+  entryPrice?: number;
 }
 
 export interface SavedWallet {

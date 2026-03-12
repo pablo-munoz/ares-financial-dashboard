@@ -197,6 +197,12 @@ export default function App() {
     persistSavedTrades(updated);
   };
 
+  const handleUpdateTrade = (updatedTrade: SavedAlphaTrade) => {
+    const updated = savedTrades.map(t => t.id === updatedTrade.id ? updatedTrade : t);
+    setSavedTrades(updated);
+    persistSavedTrades(updated);
+  };
+
   const [savedWallets, setSavedWallets] = useState<SavedWallet[]>(loadSavedWallets());
 
   const handleSaveWallet = (wallet: SavedWallet) => {
@@ -312,6 +318,7 @@ export default function App() {
                 wallets={savedWallets}
                 onDeleteTrade={handleDeleteTrade}
                 onDeleteWallet={handleDeleteWallet}
+                onUpdateTrade={handleUpdateTrade}
                 onNavigatePolymarket={() => setActiveTab('polymarket')}
                 onExport={handleExportTrades}
                 onImport={handleImportTrades}

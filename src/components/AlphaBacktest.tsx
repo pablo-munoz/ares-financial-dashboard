@@ -40,8 +40,16 @@ type BacktestTrade = {
   title?: string | null;
 };
 
+type BacktestCategoryMetric = {
+  category: string;
+  winRate: number;
+  brierScore: number;
+  count: number;
+};
+
 type BacktestResults = {
   summary: BacktestSummary;
+  categoryMetrics?: BacktestCategoryMetric[];
   equityCurve: BacktestEquityPoint[];
   calibration: BacktestCalibrationBucket[];
   recentResolutions: BacktestResolution[];
@@ -171,6 +179,29 @@ export const AlphaBacktest: React.FC = () => {
           sub={`Sharpe ~${summary.sharpeRatio.toFixed(2)}`}
         />
       </div>
+
+      {data.categoryMetrics && data.categoryMetrics.length > 0 && (
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+          {data.categoryMetrics
+            .filter(c => c.count > 0)
+            .sort((a, b) => b.count - a.count)
+            .map((cat, i) => (
+              <div key={i} className="bg-slate-50 p-5 rounded-3xl border border-slate-100 flex items-center justify-between shadow-[inset_0_2px_4px_rgba(0,0,0,0.02)]">
+                <div>
+                  <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">{cat.category}</p>
+                  <div className="flex items-baseline gap-1.5">
+                    <p className="text-xl font-bold text-slate-900 font-display">{(cat.winRate * 100).toFixed(1)}%</p>
+                    <p className="text-[10px] text-slate-500 font-medium tracking-wide">({cat.count} mkts)</p>
+                  </div>
+                </div>
+                <div className="text-right">
+                  <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Brier</p>
+                  <p className="text-sm font-bold text-slate-700">{cat.brierScore.toFixed(3)}</p>
+                </div>
+              </div>
+            ))}
+        </div>
+      )}
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
         <div className="lg:col-span-2 rounded-3xl bg-white border border-slate-100 shadow-sm overflow-hidden">

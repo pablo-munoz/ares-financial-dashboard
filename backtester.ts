@@ -18,6 +18,7 @@ interface Trade {
     outcome: string;
     side: string;
     size: number;
+    title?: string | null;
 }
 
 interface Resolution {
@@ -124,6 +125,23 @@ function calculateBrierScore(predictions: number[], outcomes: number[]): number 
         sum += Math.pow(predictions[i] - outcomes[i], 2);
     }
     return sum / predictions.length;
+}
+
+// ---------------------------------------------------------------------------
+// Market Category Categorizer
+// ---------------------------------------------------------------------------
+function getCategory(title?: string | null, slug?: string): string {
+    const t = ((title || "") + " " + (slug || "")).toLowerCase();
+
+    // Explicit API-like hints (if we start passing category tag into trade title or similar)
+    if (t.includes('f1') || t.includes('formula 1') || t.includes('tennis')) return 'Sports';
+
+    // Keyword heuristics
+    if (t.includes('bitcoin') || t.includes('btc') || t.includes('eth') || t.includes('crypto') || t.includes('token')) return 'Crypto';
+    if (t.includes('election') || t.includes('president') || t.includes('trump') || t.includes('biden') || t.includes('harris') || t.includes('vote') || t.includes('iran') || t.includes('strike') || t.includes('israel') || t.includes('war') || t.includes('russia') || t.includes('ukraine') || t.includes('gaza')) return 'Politics';
+    if (t.includes('nfl') || t.includes('nba') || t.includes('fc ') || t.includes('super bowl') || t.includes('championship') || t.includes('premier-league') || t.includes('laliga') || t.includes('piastri') || t.includes('verstappen')) return 'Sports';
+
+    return 'General';
 }
 
 // ---------------------------------------------------------------------------
@@ -266,12 +284,17 @@ async function runBacktest() {
     // -----------------------------------------------------------------------
     // Build the sorted day list from actual DB trades only.
     // We group by calendar day so the simulation clock advances day-by-day.
+    // Also build a slug-to-category mapping for grouped metrics.
     // -----------------------------------------------------------------------
     const tradesByDay: Record<string, Trade[]> = {};
+    const slugToCategory = new Map<string, string>();
     existingTrades.forEach(t => {
         const date = new Date(t.ts * 1000).toISOString().split("T")[0];
         if (!tradesByDay[date]) tradesByDay[date] = [];
         tradesByDay[date].push(t);
+        if (!slugToCategory.has(t.slug)) {
+            slugToCategory.set(t.slug, getCategory(t.title, t.slug));
+        }
     });
 
     const sortedDays = Object.keys(tradesByDay).sort();
@@ -309,6 +332,13 @@ async function runBacktest() {
     const calibrationBuckets: { count: number; sum: number }[] = Array.from(
         { length: bins }, () => ({ count: 0, sum: 0 })
     );
+
+    const categoryStats: Record<string, { brierSum: number; correct: number; count: number }> = {
+        'Crypto': { brierSum: 0, correct: 0, count: 0 },
+        'Politics': { brierSum: 0, correct: 0, count: 0 },
+        'Sports': { brierSum: 0, correct: 0, count: 0 },
+        'General': { brierSum: 0, correct: 0, count: 0 },
+    };
 
     // Per-slug EMA state for long-horizon anchor
     const slugState = new Map<string, { longVwap: number; sampleCount: number }>();
@@ -388,6 +418,15 @@ async function runBacktest() {
             calibrationBuckets[bucketIdx].count++;
             calibrationBuckets[bucketIdx].sum += actual;
 
+            // Update category metrics
+            const cat = slugToCategory.get(slug) || 'General';
+            const isCorrect = (fairValue > 0.5 && actual === 1) || (fairValue <= 0.5 && actual === 0);
+            if (categoryStats[cat]) {
+                categoryStats[cat].count++;
+                categoryStats[cat].brierSum += Math.pow(fairValue - actual, 2);
+                if (isCorrect) categoryStats[cat].correct++;
+            }
+
             const edge = fairValue - priceShort;
             if (Math.abs(edge) > 0.02) {
                 let kelly: number;
@@ -435,6 +474,13 @@ async function runBacktest() {
         count: b.count,
     }));
 
+    const categoryMetrics = Object.entries(categoryStats).map(([name, stats]) => ({
+        category: name,
+        winRate: stats.count > 0 ? stats.correct / stats.count : 0,
+        brierScore: stats.count > 0 ? stats.brierSum / stats.count : 0,
+        count: stats.count
+    }));
+
     const recentResolutions = resolvedList
         .filter(r => revealedResMap.has(r.slug))
         .slice(-30)
@@ -448,6 +494,7 @@ async function runBacktest() {
             totalPnL: Math.round((capital - INITIAL_CAPITAL) * 100) / 100,
             sharpeRatio: 0, // requires daily returns series — left for future pass
         },
+        categoryMetrics,
         equityCurve,
         calibration,
         recentResolutions,
