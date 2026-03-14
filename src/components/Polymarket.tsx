@@ -127,6 +127,7 @@ export const Polymarket: React.FC<PolymarketProps> = ({ onSaveTrade, onSaveWalle
         body: JSON.stringify({ scope: 'alpha' }),
       });
       const json = await res.json();
+      console.log('[Alpha] Received fresh signals:', json?.data?.alphaSignals?.length ?? 0);
       if (json?.data) {
         setData(json.data);
       }
@@ -147,6 +148,7 @@ export const Polymarket: React.FC<PolymarketProps> = ({ onSaveTrade, onSaveWalle
         body: JSON.stringify({ scope: 'insiders' }),
       });
       const json = await res.json();
+      console.log('[Insider] Received fresh data:', json?.data?.insiders?.length ?? 0);
       if (json?.data) {
         setData(json.data);
       }

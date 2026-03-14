@@ -28,8 +28,26 @@ async function syncRecent() {
     });
 
     console.log(`Found ${resolved.length} potentially relevant resolved markets.`);
+    
+    // Create market_meta table if it doesn't exist (sync script standalone safety)
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS market_meta (
+        slug TEXT PRIMARY KEY,
+        eventSlug TEXT,
+        title TEXT,
+        category TEXT,
+        endTs INTEGER,
+        yesOutcome TEXT,
+        noOutcome TEXT,
+        fetchedAtMs INTEGER
+      );
+    `);
 
     const insertRes = db.prepare("INSERT OR REPLACE INTO market_resolutions (slug, winningOutcome, resolved_at) VALUES (?, ?, ?)");
+    const insertMeta = db.prepare(`
+        INSERT OR REPLACE INTO market_meta (slug, eventSlug, title, category, endTs, yesOutcome, noOutcome, fetchedAtMs)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    `);
     const insertTrade = db.prepare(`
     INSERT OR IGNORE INTO trades
     (txHash, ts, slug, title, conditionId, wallet, side, outcome, price, size, notional)
@@ -37,9 +55,22 @@ async function syncRecent() {
     (@txHash, @ts, @slug, @title, @conditionId, @wallet, @side, @outcome, @price, @size, @notional)
   `);
 
-    for (const m of resolved.slice(0, 10)) {
+    for (const m of resolved.slice(0, 50)) {
         const resolvedAt = m.closedTime ? Math.floor(Date.parse(m.closedTime) / 1000) : Math.floor(Date.now() / 1000);
         insertRes.run(m.slug, m.winningOutcome, resolvedAt);
+
+        // Sync Metadata
+        const outcomes = m.outcomes ? (typeof m.outcomes === 'string' ? JSON.parse(m.outcomes) : m.outcomes) : [];
+        insertMeta.run(
+            m.slug,
+            m.events?.[0]?.slug || m.slug,
+            m.question || m.slug,
+            m.groupSlug || "General",
+            resolvedAt,
+            outcomes[0] || "YES",
+            outcomes[1] || "NO",
+            Date.now()
+        );
 
         console.log(`Fetching trades for ${m.slug}...`);
         const tRes = await fetch(`${POLYMARKET_DATA_API}/trades?slug=${m.slug}&limit=200`, {

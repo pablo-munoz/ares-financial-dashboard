@@ -1,6 +1,7 @@
 import Database from "better-sqlite3";
 import path from "path";
 import { fileURLToPath } from "url";
+import { calculateAlphaSignal } from "./model.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -57,8 +58,8 @@ db.exec(`
  * Returns all trades for a given slug that occurred AT OR BEFORE sim_ts.
  * This is the core PIT guard that prevents lookahead.
  */
-const pitTradesStmt = db.prepare<[string, number], { price: number; size: number }>(
-    `SELECT price, size FROM trades
+const pitTradesStmt = db.prepare<[string, number], { price: number; size: number; outcome: string; notional: number }>(
+    `SELECT price, size, outcome, notional FROM trades
      WHERE slug = ? AND ts <= ?
      ORDER BY ts ASC`
 );
@@ -79,11 +80,12 @@ const validationInsertStmt = db.prepare(
      VALUES (?, ?, ?, ?, ?)`
 );
 
-/**
- * Resolution inference from last observed price BEFORE sim_ts.
- */
 const pitLatestPriceStmt = db.prepare<[string, number], { price: number } | undefined>(
     `SELECT price FROM trades WHERE slug = ? AND ts <= ? ORDER BY ts DESC LIMIT 1`
+);
+
+const marketMetaStmt = db.prepare<[string], { yesOutcome: string | null; noOutcome: string | null } | undefined>(
+    `SELECT yesOutcome, noOutcome FROM market_meta WHERE slug = ?`
 );
 
 // ---------------------------------------------------------------------------
@@ -174,55 +176,6 @@ async function runBacktest() {
         }
 
         resolvedList.push({ slug: r.slug, winningOutcome: outcome, resolved_at: r.resolved_at });
-    }
-
-    // -----------------------------------------------------------------------
-    // Fallback: When fewer than 20 slugs overlap between the Gamma resolution
-    // table and the local trades table (e.g. the Gamma sync imported old slugs
-    // while the trades table holds current markets), we infer resolution from
-    // the price-boundary heuristic used by the server's insider scorer:
-    // a slug is "resolved" when its last observed price crosses >= 0.97 or
-    // <= 0.03. This is 100% local-DB, PIT-compliant, and avoids any API call.
-    // -----------------------------------------------------------------------
-    const resolvedSlugsSet = new Set(resolvedList.map(r => r.slug));
-    const matchingTradeslugs = (db
-        .prepare(`SELECT DISTINCT slug FROM trades WHERE slug IN (${resolvedList.length > 0 ? resolvedList.map(() => '?').join(',') : "''"})`)
-        .all(...resolvedList.map(r => r.slug)) as { slug: string }[]).map(r => r.slug);
-
-    if (matchingTradeslugs.length < 20) {
-        console.log(`[Backtest] Only ${matchingTradeslugs.length} slug(s) overlap between trades and market_resolutions.`);
-        console.log(`[Backtest] Activating price-boundary resolution inference from local trades DB...`);
-
-        // Fetch slugs with sufficient trade history from the local DB.
-        // MIN(ts) per slug is used as the effective "resolved_at" proxy (last trade date).
-        const inferredRows = db.prepare(`
-            SELECT slug,
-                   (SELECT price FROM trades t2 WHERE t2.slug = t.slug ORDER BY t2.ts DESC LIMIT 1) AS lastPrice,
-                   MAX(ts) AS lastTs,
-                   COUNT(*) AS cnt
-            FROM trades t
-            WHERE slug NOT LIKE 'hist-%'
-            GROUP BY slug
-            HAVING cnt >= 30
-              AND (lastPrice >= 0.95 OR lastPrice <= 0.05)
-            ORDER BY lastTs DESC
-            LIMIT 200
-        `).all() as { slug: string; lastPrice: number; lastTs: number; cnt: number }[];
-
-        console.log(`[Backtest] Inferred ${inferredRows.length} resolved market(s) from price boundaries.`);
-
-        for (const row of inferredRows) {
-            if (resolvedSlugsSet.has(row.slug)) continue; // already in list
-            const outcome = row.lastPrice >= 0.5 ? "YES" : "NO";
-            resolvedList.push({
-                slug: row.slug,
-                winningOutcome: outcome,
-                resolved_at: row.lastTs,
-            });
-        }
-
-        // Re-sort by resolved_at ASC so the unveiling pointer works correctly
-        resolvedList.sort((a, b) => a.resolved_at - b.resolved_at);
     }
 
     if (resolvedList.length === 0) {
@@ -368,14 +321,29 @@ async function runBacktest() {
             // ----------------------------------------------------------------
             const pitTrades = pitTradesStmt.all(slug, sim_ts);
 
-            if (pitTrades.length === 0) continue;
+            // ----------------------------------------------------------------
+            // Outcome filtering using MarketMeta (Synchronized with server.ts)
+            // ----------------------------------------------------------------
+            const meta = marketMetaStmt.get(slug);
+            const yesOutcomeName = meta?.yesOutcome?.toUpperCase() || 'YES';
+            const noOutcomeName = meta?.noOutcome?.toUpperCase() || 'NO';
 
-            // Short-horizon VWAP (trades available to the model at sim_ts)
-            const vwapNum = pitTrades.reduce((acc, t) => acc + t.price * t.size, 0);
-            const vwapDen = pitTrades.reduce((acc, t) => acc + t.size, 0);
+            const pitTradesYES = pitTrades.filter(t => {
+                const o = t.outcome?.toUpperCase();
+                return o === 'YES' || o === yesOutcomeName;
+            });
+
+            if (pitTradesYES.length === 0) continue;
+
+            const vwapNum = pitTradesYES.reduce((acc, t) => acc + t.price * t.size, 0);
+            const vwapDen = pitTradesYES.reduce((acc, t) => acc + t.size, 0);
             const priceShort = vwapDen > 0
                 ? vwapNum / vwapDen
-                : pitTrades.reduce((acc, t) => acc + t.price, 0) / pitTrades.length;
+                : pitTradesYES.reduce((acc, t) => acc + t.price, 0) / pitTradesYES.length;
+
+            if (priceShort >= 0.985 || priceShort <= 0.015) {
+                continue;
+            }
 
             // Long-horizon EMA — purely based on past-visible data
             const prev = slugState.get(slug) ?? { longVwap: priceShort, sampleCount: 0 };
@@ -385,9 +353,30 @@ async function runBacktest() {
                 : priceShort;
             slugState.set(slug, { longVwap, sampleCount: prev.sampleCount + 1 });
 
-            // Fair value: mean-reverting signal anchored on longVwap
-            const baseFair = longVwap + 0.15 * (longVwap - priceShort);
-            const fairValue = Math.max(0.01, Math.min(0.99, baseFair));
+            // NEW: Shared Alpha Model Logic (Synchronized with server.ts)
+            const recentPitTrades = pitTrades.slice(-50);
+            const yesNotion = recentPitTrades
+                .filter(t => {
+                    const o = t.outcome?.toUpperCase();
+                    return o === 'YES' || o === yesOutcomeName;
+                })
+                .reduce((acc, t) => acc + (t.notional || (t.price * t.size) || 0), 0);
+            const noNotion = recentPitTrades
+                .filter(t => {
+                    const o = t.outcome?.toUpperCase();
+                    return o === 'NO' || o === noOutcomeName;
+                })
+                .reduce((acc, t) => acc + (t.notional || (t.price * t.size) || 0), 0);
+
+            const { fairValue, edge, kellyStake } = calculateAlphaSignal({
+                executionPrice: priceShort,
+                longVwap: longVwap,
+                yesNotion,
+                noNotion,
+                sharpShift: 0, // Insider state reconstruction pending
+                sectorBias: 0,  // Historical calibration pending
+                isSports: (slugToCategory.get(slug) === 'Sports')
+            });
 
             // ----------------------------------------------------------------
             // Task 4: Anti-Leakage Validation
@@ -427,36 +416,26 @@ async function runBacktest() {
                 if (isCorrect) categoryStats[cat].correct++;
             }
 
-            const edge = fairValue - priceShort;
-            if (Math.abs(edge) > 0.02) {
-                let kelly: number;
-                if (edge > 0) {
-                    kelly = (fairValue - priceShort) / (1 - priceShort);
-                } else {
-                    kelly = (priceShort - fairValue) / priceShort;
-                }
+            const betSize = capital * (kellyStake / 100);
 
-                const fraction = 0.1; // 10% Kelly
-                const betSize = Math.max(0, capital * kelly * fraction);
+            if (betSize > 1) { // lowered from 10 to allow smaller signals
+                const slippage = (priceShort * SLIPPAGE_BPS) / 10000;
+                const entryPrice = edge > 0
+                    ? Math.min(0.99, priceShort + slippage)
+                    : Math.max(0.01, priceShort - slippage);
 
-                if (betSize > 10) {
-                    const slippage = (priceShort * SLIPPAGE_BPS) / 10000;
-                    const entryPrice = edge > 0
-                        ? Math.min(0.99, priceShort + slippage)
-                        : Math.max(0.01, priceShort - slippage);
+                const win = (edge > 0 && isYesWin) || (edge < 0 && !isYesWin);
+                const pnl = win
+                    ? (edge > 0
+                        ? betSize * (1 / entryPrice - 1)
+                        : betSize * (1 / (1 - entryPrice) - 1))
+                    : -betSize;
 
-                    const win = (edge > 0 && isYesWin) || (edge < 0 && !isYesWin);
-                    const pnl = win
-                        ? (edge > 0
-                            ? betSize * (1 / entryPrice - 1)
-                            : betSize * (1 / (1 - entryPrice) - 1))
-                        : -betSize;
-
-                    capital += pnl;
-                }
+                // Safety Cap: Prevent unrealistic float explosions (Max 100% gain per trade on total capital)
+                const cappedPnl = Math.min(capital, pnl);
+                capital += cappedPnl;
             }
         }
-
         equityCurve.push({ date: day, equity: Math.round(capital * 100) / 100 });
     }
 
